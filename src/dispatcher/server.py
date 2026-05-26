@@ -11,10 +11,13 @@ import grpc
 
 from proto import taskgrid_pb2_grpc
 from src.common.logger import get_logger
+from src.dispatcher.dispatch_loop import DispatchLoop
 from src.dispatcher.namensdienst_client import NamensdienstClient
 from src.dispatcher.servicer import DispatcherServicer
 from src.dispatcher.task_queue import TaskQueue
 from src.dispatcher.task_store import TaskStore
+from src.dispatcher.worker_client import WorkerClient
+from src.dispatcher.worker_selector import RoundRobinSelector
 
 logger = get_logger("dispatcher.server")
 
@@ -22,9 +25,15 @@ logger = get_logger("dispatcher.server")
 def serve() -> None:
     port = os.environ.get("DISPATCHER_PORT", "50051")
 
-    store = TaskStore()
-    task_queue = TaskQueue()
-    ns_client = NamensdienstClient()
+    store         = TaskStore()
+    task_queue    = TaskQueue()
+    ns_client     = NamensdienstClient()
+    selector      = RoundRobinSelector()
+    worker_client = WorkerClient()
+
+    dispatch_loop = DispatchLoop(store, task_queue, ns_client, selector, worker_client)
+    dispatch_loop.start()
+
     servicer = DispatcherServicer(store, task_queue, ns_client)
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
@@ -36,6 +45,7 @@ def serve() -> None:
 
     def _graceful_stop(sig, frame):
         logger.info("Shutdown-Signal empfangen, stoppe Server...")
+        dispatch_loop.stop()
         server.stop(grace=5)
 
     signal.signal(signal.SIGTERM, _graceful_stop)
