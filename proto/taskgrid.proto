@@ -1,0 +1,139 @@
+syntax = "proto3";
+
+package taskgrid;
+
+// ──────────────────────────────────────────────
+// Gemeinsame Typen
+// ──────────────────────────────────────────────
+
+message TaskRequest {
+  string request_id = 1;
+  string task_type  = 2;   // "reverse", "sum", "hash", "upper", "wait"
+  string payload    = 3;   // JSON-String mit aufgabenspezifischen Daten
+  string sender     = 4;
+}
+
+message TaskResponse {
+  string task_id = 1;
+  string status  = 2;   // TaskState-Wert
+}
+
+message ResultRequest {
+  string request_id = 1;
+  string task_id    = 2;
+  string sender     = 3;
+}
+
+message ResultResponse {
+  string task_id = 1;
+  string status  = 2;
+  string result  = 3;   // leer solange nicht COMPLETED
+}
+
+message ResultReturn {
+  string request_id = 1;
+  string task_id    = 2;
+  string worker_id  = 3;
+  string result     = 4;
+  bool   success    = 5;
+  string error_msg  = 6;
+}
+
+message Ack {
+  bool   ok      = 1;
+  string message = 2;
+}
+
+// ──────────────────────────────────────────────
+// DispatcherService  (Client → Dispatcher)
+// ──────────────────────────────────────────────
+
+service DispatcherService {
+  // POST_TASK: Client gibt Task ab, erhält task_id zurück
+  rpc PostTask (TaskRequest) returns (TaskResponse);
+
+  // GET_RESULT: Client fragt Ergebnis ab
+  rpc GetResult (ResultRequest) returns (ResultResponse);
+
+  // GET_STATUS: Monitoring fragt Systemzustand ab
+  rpc GetStatus (StatusRequest) returns (StatusResponse);
+
+  // RESULT_RETURN: Worker liefert fertiges Ergebnis zurück
+  rpc ReceiveResult (ResultReturn) returns (Ack);
+}
+
+message StatusRequest {
+  string sender = 1;
+}
+
+message StatusResponse {
+  int32  queued_tasks    = 1;
+  int32  active_workers  = 2;
+  string details         = 3;   // JSON mit vollständigem Zustandsüberblick
+}
+
+// ──────────────────────────────────────────────
+// NamensdienstService  (Worker/Dispatcher → Namensdienst)
+// ──────────────────────────────────────────────
+
+service NamensdienstService {
+  // REGISTER_WORKER: Worker meldet sich an
+  rpc RegisterWorker (RegisterRequest) returns (Ack);
+
+  // HEARTBEAT: Worker sendet Lebenszeichen
+  rpc Heartbeat (HeartbeatRequest) returns (Ack);
+
+  // LOOKUP_WORKER: Dispatcher fragt passenden Worker für Tasktyp
+  rpc LookupWorker (LookupRequest) returns (LookupResponse);
+
+  // DEREGISTER_WORKER: Worker meldet sich beim Shutdown ab
+  rpc DeregisterWorker (DeregisterRequest) returns (Ack);
+}
+
+message RegisterRequest {
+  string worker_id    = 1;
+  string task_type    = 2;
+  string address      = 3;
+  int32  port         = 4;
+  int32  capacity     = 5;   // max. parallele Tasks
+}
+
+message HeartbeatRequest {
+  string worker_id     = 1;
+  int32  current_load  = 2;  // aktive Tasks gerade
+}
+
+message LookupRequest {
+  string task_type = 1;
+}
+
+message WorkerInfo {
+  string worker_id     = 1;
+  string address       = 2;
+  int32  port          = 3;
+  int32  current_load  = 4;
+}
+
+message LookupResponse {
+  bool              found   = 1;
+  repeated WorkerInfo workers = 2;   // Liste aller ACTIVE Worker für den Tasktyp
+}
+
+message DeregisterRequest {
+  string worker_id = 1;
+}
+
+// ──────────────────────────────────────────────
+// WorkerService  (Dispatcher → Worker)
+// ──────────────────────────────────────────────
+
+service WorkerService {
+  // Dispatcher weist Worker einen Task zu
+  rpc DispatchTask (DispatchRequest) returns (Ack);
+}
+
+message DispatchRequest {
+  string task_id   = 1;
+  string task_type = 2;
+  string payload   = 3;
+}

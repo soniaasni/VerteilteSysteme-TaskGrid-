@@ -1,0 +1,4 @@
+# Entwicklungs- und Test-Abhängigkeiten
+grpcio-tools>=1.62
+pytest>=7.4
+pytest-timeout>=2.1

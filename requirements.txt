@@ -1,0 +1,2 @@
+# TaskGrid+ Runtime-Abhängigkeiten
+grpcio>=1.62
