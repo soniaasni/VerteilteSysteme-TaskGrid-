@@ -1,0 +1,56 @@
+\glsdefs@newdocentry{ki}%
+{%
+name={\acronymfont {\glsentryshort {ki}}},%
+sort={KI},%
+type={acronym},%
+first={KI},%
+firstplural={KIs},%
+text={KI},%
+plural={KIs},%
+description={Künstliche Intelligenz},%
+descriptionplural={Künstliche Intelligenz},%
+symbol={\relax },%
+symbolplural={\relax },%
+user1={},%
+user2={},%
+user3={},%
+user4={},%
+user5={},%
+user6={},%
+long={Künstliche Intelligenz},%
+longplural={Künstliche Intelligenzs},%
+short={KI},%
+shortplural={KIs},%
+counter={page},%
+parent={},%
+%
+}%
+
+\glsdefs@newdocentry{api}%
+{%
+name={\acronymfont {\glsentryshort {api}}},%
+sort={API},%
+type={acronym},%
+first={API},%
+firstplural={APIs},%
+text={API},%
+plural={APIs},%
+description={Application Programming Interface},%
+descriptionplural={Application Programming Interface},%
+symbol={\relax },%
+symbolplural={\relax },%
+user1={},%
+user2={},%
+user3={},%
+user4={},%
+user5={},%
+user6={},%
+long={Application Programming Interface},%
+longplural={Application Programming Interfaces},%
+short={API},%
+shortplural={APIs},%
+counter={page},%
+parent={},%
+%
+}%
+

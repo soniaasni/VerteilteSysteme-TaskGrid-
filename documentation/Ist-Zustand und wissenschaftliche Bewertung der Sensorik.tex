@@ -1,0 +1,30 @@
+\section{Ist-Zustand und wissenschaftliche Bewertung der Sesorik}
+•	Anforderungen an die Sensorik im Kontext des Projektziels (nur so tief wie nötig)\\
+•	Wissenschaftliche Diskussion:
+
+o	„Braucht man (diese) Sensoren wirklich?“ – Vergleich verschiedener Sensortechnologien (LIDAR, Kamera, Ultraschall)
+
+o	Vor- und Nachteile im konkreten Anwendungsfall (Modellfahrzeug, Innenraum, Umgebungseinflüsse)
+
+o	Qualitäts- versus Mengenfrage: Wenige hochwertige vs. viele günstige Sensoren
+
+o	Einflüsse defekter bzw. nicht verfügbarer Hardware auf die Projektentscheidungen\\
+•	Fundierte, nachvollziehbare Begründung der gewählten Sensorik (ggf. Änderung des Sensor-Setups)
+
+
+LIDAR Sensor: 
+In lidar_data.py wird der typische LIDAR‑Pipeline‑Ablauf umgesetzt. 
+Ein JSON‑Scan wird geladen, aus angle_min, angle_max und angle_increment werden die Messwinkel berechnet, und die zugehörigen Distanzen aus ranges werden zusammengeführt. Anschließend werden die Daten in einem DataFrame strukturiert und als Polarplot visualisiert, wodurch die räumliche Verteilung der Messpunkte um den Sensor sichtbar wird.
+Die Scan‑Dateien lidar_scan_0.json bis lidar_scan_8.json sind konsistent aufgebaut: Jeder Scan umfasst 1147 Messpunkte und deckt den Vollkreis von etwa −π bis +π ab, bei einer Winkelauflösung von ca. 0,00548 rad (~0,314°). Die Distanzwerte liegen typischerweise zwischen ca. 0,47 m und 10,4 m, der Mittelwert bewegt sich stabil im Bereich von 3,07–3,11 m. Ein signifikanter Anteil der Werte ist nicht‑finite (ca. 268–278 pro Scan), was auf Messausfälle oder Bereiche außerhalb der Sensorreichweite hindeutet. Dies ist bei LIDAR‑Messungen üblich und sollte in der Auswertung gefiltert oder als „kein Treffer“ behandelt werden. Insgesamt deuten die Daten auf eine gleichmäßige und zuverlässige Erfassung mit konsistenter Sensorauflösung und stabiler Reichweite hin.
+
+Im aktuellen Projekt werden die LIDAR‑Daten an zwei Stellen genutzt: 
+o lidar_data.py lädt direkt lidar_scan_5.json (und kann beliebige lidar_scan_*.json verarbeiten) für DataFrame‑Analyse und Polarplot. 
+o lidar_data.dart hingegen lädt nicht die lidar_scan_*.json, sondern das occupancy_grid_example.json und erzeugt daraus ein Occupancy‑Grid für die Flutter‑UI, die Struktur des Grids ist in occupancy_grid.dart definiert.
+
+Eine operative Nutzung realer LIDAR‑Hardware ist im vorliegenden Projektstand nicht implementiert. Die vorhandenen LIDAR‑bezogenen Dateien dienen ausschließlich der Offline‑Analyse bzw. Visualisierung: 
+o In lidar_data.py werden statische JSON‑Scans aus dem Asset‑Ordner geladen und geplottet, während die Flutter‑App ein Beispiel‑Occupancy‑Grid aus den Assets darstellt. 
+o Es fehlen Treiber‑ oder Kommunikationsschnittstellen (z. B. ROS‑Topics, Serial, UDP/TCP) zur Anbindung eines physischen LIDAR‑Sensors. 
+Somit ist der LIDAR im aktuellen Systemzustand nicht funktional integriert und die Daten stammen aus extern bereitgestellten, vorab aufgezeichneten Datensätzen.
+
+
+

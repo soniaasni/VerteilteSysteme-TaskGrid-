@@ -1,0 +1,57 @@
+# Compilierte Dateien
+*.pdf
+*.dvi
+*.ps
+
+# Log- und Hilfsdateien
+*.aux
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.bbl
+*.blg
+*.bcf
+*.run.xml
+*.nav
+*.snm
+*.vrb
+
+# Latexmk
+*.xdv
+*.latexmk
+
+# Editor-Dateien
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Betriebssystem-Dateien
+.DS_Store
+Thumbs.db
+
+# TikZ / externe Builds
+*.tikz
+*-figure*.pdf
+
+# Glossaries / Index
+*.acn
+*.acr
+*.alg
+*.glg
+*.glo
+*.gls
+*.idx
+*.ilg
+*.ind
+*.ist
+
+# Temporäre Dateien
+*.tmp
+*.bak
