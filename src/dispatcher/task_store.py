@@ -37,3 +37,17 @@ class TaskStore:
     def count_by_status(self, status: TaskState) -> int:
         with self._lock:
             return sum(1 for t in self._tasks.values() if t.status == status)
+
+    def worker_load_map(self) -> dict[str, int]:
+        """
+        Gibt die Anzahl der aktuell aktiven Tasks pro Worker zurück.
+        Zählt Tasks im Zustand DISPATCHED oder PROCESSING mit gesetztem assigned_worker.
+        Thread-sicher — Snapshot unter Lock.
+        """
+        active = (TaskState.DISPATCHED, TaskState.PROCESSING)
+        with self._lock:
+            load: dict[str, int] = {}
+            for t in self._tasks.values():
+                if t.status in active and t.assigned_worker:
+                    load[t.assigned_worker] = load.get(t.assigned_worker, 0) + 1
+            return load
