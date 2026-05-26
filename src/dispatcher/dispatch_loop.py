@@ -37,6 +37,7 @@ from src.dispatcher.worker_selector import RoundRobinSelector
 logger = get_logger("dispatcher.dispatch_loop")
 
 _DEFAULT_TIMEOUT_SECS  = int(os.environ.get("DISPATCH_TIMEOUT_SECONDS", "30"))
+_DEFAULT_MAX_RETRIES   = int(os.environ.get("MAX_RETRIES", "3"))
 _NO_WORKER_RETRY_SECS  = float(os.environ.get("DISPATCH_NO_WORKER_RETRY_SECONDS", "2"))
 
 
@@ -50,6 +51,7 @@ class DispatchLoop(threading.Thread):
         selector:      RoundRobinSelector,
         worker_client: WorkerClient,
         timeout_secs:  int = _DEFAULT_TIMEOUT_SECS,
+        max_retries:   int = _DEFAULT_MAX_RETRIES,
     ) -> None:
         super().__init__(daemon=True, name="dispatch-loop")
         self._store         = store
@@ -58,6 +60,7 @@ class DispatchLoop(threading.Thread):
         self._selector      = selector
         self._worker_client = worker_client
         self._timeout_secs  = timeout_secs
+        self._max_retries   = max_retries
         self._running       = False
         self._executor      = ThreadPoolExecutor(max_workers=10, thread_name_prefix="dispatch")
         self._timers:       dict[str, threading.Timer] = {}
@@ -84,7 +87,7 @@ class DispatchLoop(threading.Thread):
 
             # Frischen Zustand aus Store lesen — könnte sich seit Einreihen geändert haben
             fresh = self._store.get(task.task_id)
-            if fresh is None or fresh.status != TaskState.QUEUED:
+            if fresh is None or fresh.status not in (TaskState.QUEUED, TaskState.RETRYING):
                 continue
 
             self._executor.submit(self._dispatch, fresh)
@@ -105,7 +108,7 @@ class DispatchLoop(threading.Thread):
             self._queue.enqueue(task)
             return
 
-        # QUEUED → DISPATCHED
+        # QUEUED → DISPATCHED  oder  RETRYING → DISPATCHED
         try:
             transition(task, TaskState.DISPATCHED)
         except InvalidTransitionError as e:
@@ -159,16 +162,50 @@ class DispatchLoop(threading.Thread):
     # ── Timeout-Timer ─────────────────────────────────────────────────────────
 
     def _start_timeout_timer(self, task: Task) -> None:
+        task_id = task.task_id
+
         def _on_timeout() -> None:
-            # Hook für Issue #18 — hier wird DISPATCHED → TIMEOUT → RETRYING implementiert.
+            fresh = self._store.get(task_id)
+            if fresh is None or is_terminal(fresh):
+                return
+
             log_event(logger, "warning", "DISPATCH_TIMEOUT_fired",
-                      task_id=task.task_id,
-                      worker_id=task.assigned_worker)
+                      task_id=task_id, worker_id=fresh.assigned_worker,
+                      retry_count=fresh.retry_count)
+
+            # DISPATCHED → TIMEOUT → RETRYING
+            try:
+                transition(fresh, TaskState.TIMEOUT)
+                transition(fresh, TaskState.RETRYING)
+                fresh.retry_count += 1
+                self._store.update(fresh)
+            except InvalidTransitionError as e:
+                log_event(logger, "error", "TIMEOUT_transition_error",
+                          task_id=task_id, error=str(e))
+                return
+
+            if fresh.retry_count >= self._max_retries:
+                # Max. Retries erschöpft → FAILED
+                try:
+                    transition(fresh, TaskState.FAILED)
+                    self._store.update(fresh)
+                    log_event(logger, "error", "TIMEOUT_max_retries_exceeded",
+                              task_id=task_id, retry_count=fresh.retry_count,
+                              max_retries=self._max_retries)
+                except InvalidTransitionError as e:
+                    log_event(logger, "error", "TIMEOUT_transition_error",
+                              task_id=task_id, error=str(e))
+            else:
+                # Erneut einplanen — Dispatch-Loop übernimmt RETRYING → DISPATCHED
+                self._queue.enqueue(fresh)
+                log_event(logger, "info", "TIMEOUT_retrying",
+                          task_id=task_id, retry_count=fresh.retry_count,
+                          max_retries=self._max_retries)
 
         timer = threading.Timer(self._timeout_secs, _on_timeout)
         timer.daemon = True
         with self._timers_lock:
-            self._timers[task.task_id] = timer
+            self._timers[task_id] = timer
         timer.start()
 
     def cancel_timeout(self, task_id: str) -> None:
