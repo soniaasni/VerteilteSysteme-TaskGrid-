@@ -1,6 +1,6 @@
 """
 gRPC-Servicer für den Dispatcher.
-Implementiert: PostTask (Issue #13)
+Implementiert: PostTask (#13), lookup_worker (#14)
 Stubs für:     GetResult (#17), GetStatus (#20), ReceiveResult (#16)
 """
 
@@ -9,18 +9,47 @@ import grpc
 from proto import taskgrid_pb2, taskgrid_pb2_grpc
 from src.common.logger import get_logger, log_event
 from src.common.protocol import TaskState, new_task_id
+from src.dispatcher.namensdienst_client import NamensdienstClient
 from src.dispatcher.task import Task, MAX_TYPE_LEN, MAX_PAYLOAD_LEN
 from src.dispatcher.task_queue import TaskQueue
 from src.dispatcher.task_store import TaskStore
+from src.dispatcher.worker_selector import RoundRobinSelector
 
 logger = get_logger("dispatcher")
 
 
 class DispatcherServicer(taskgrid_pb2_grpc.DispatcherServiceServicer):
 
-    def __init__(self, store: TaskStore, task_queue: TaskQueue) -> None:
+    def __init__(self, store: TaskStore, task_queue: TaskQueue,
+                 ns_client: NamensdienstClient) -> None:
         self._store = store
         self._queue = task_queue
+        self._ns_client = ns_client
+        self._selector = RoundRobinSelector()
+
+    # ── Issue #14 ─────────────────────────────────────────────────────────────
+
+    def lookup_worker(self, task_type: str, request_id: str = ""):
+        """
+        LOOKUP_WORKER: Fragt Namensdienst nach verfügbaren Workern für task_type
+        und wählt einen per Round-Robin aus.
+        Gibt WorkerInfo oder None zurück (kein Worker verfügbar / NS nicht erreichbar).
+        Dispatcher-Code enthält KEINE statischen Worker-Adressen.
+        """
+        workers = self._ns_client.lookup_worker(task_type, request_id)
+        selected = self._selector.select(task_type, workers)
+
+        if selected is None:
+            log_event(logger, "warning", "LOOKUP_WORKER_no_worker_selected",
+                      request_id=request_id, task_type=task_type)
+        else:
+            log_event(logger, "info", "LOOKUP_WORKER_selected",
+                      request_id=request_id,
+                      task_type=task_type,
+                      worker_id=selected.worker_id,
+                      address=selected.address,
+                      port=selected.port)
+        return selected
 
     # ── Issue #13 ─────────────────────────────────────────────────────────────
 

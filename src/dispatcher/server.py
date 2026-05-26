@@ -11,6 +11,7 @@ import grpc
 
 from proto import taskgrid_pb2_grpc
 from src.common.logger import get_logger
+from src.dispatcher.namensdienst_client import NamensdienstClient
 from src.dispatcher.servicer import DispatcherServicer
 from src.dispatcher.task_queue import TaskQueue
 from src.dispatcher.task_store import TaskStore
@@ -23,7 +24,8 @@ def serve() -> None:
 
     store = TaskStore()
     task_queue = TaskQueue()
-    servicer = DispatcherServicer(store, task_queue)
+    ns_client = NamensdienstClient()
+    servicer = DispatcherServicer(store, task_queue, ns_client)
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     taskgrid_pb2_grpc.add_DispatcherServiceServicer_to_server(servicer, server)

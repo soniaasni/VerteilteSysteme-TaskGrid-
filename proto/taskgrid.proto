@@ -107,11 +107,16 @@ message LookupRequest {
   string task_type = 1;
 }
 
+message WorkerInfo {
+  string worker_id     = 1;
+  string address       = 2;
+  int32  port          = 3;
+  int32  current_load  = 4;
+}
+
 message LookupResponse {
-  bool   found     = 1;
-  string worker_id = 2;
-  string address   = 3;
-  int32  port      = 4;
+  bool              found   = 1;
+  repeated WorkerInfo workers = 2;   // Liste aller ACTIVE Worker für den Tasktyp
 }
 
 message DeregisterRequest {

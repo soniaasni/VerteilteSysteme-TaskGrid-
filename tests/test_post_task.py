@@ -14,9 +14,12 @@ from src.dispatcher.task_queue import TaskQueue
 
 
 def _make_servicer():
+    from unittest.mock import MagicMock
     store = TaskStore()
     q = TaskQueue()
-    return DispatcherServicer(store, q), store, q
+    ns_client = MagicMock()
+    ns_client.lookup_worker.return_value = []
+    return DispatcherServicer(store, q, ns_client), store, q
 
 
 def _mock_context():
