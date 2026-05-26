@@ -40,7 +40,7 @@ class NamensdienstClient:
         port = os.environ.get("NAMENSDIENST_PORT", "50052")
         self._target = f"{host}:{port}"
         self._channel = grpc.insecure_channel(self._target)
-        self._stub = taskgrid_pb2_grpc.NamensdienstServiceStub(self._channel)
+        self._stub = taskgrid_pb2_grpc.NamingServiceStub(self._channel)  # Elena: NamingService
         logger.info(f"NamensdienstClient verbindet zu {self._target}")
 
     def lookup_worker(self, task_type: str, request_id: str = "") -> List[WorkerInfo]:
