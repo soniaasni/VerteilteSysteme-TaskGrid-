@@ -1,0 +1,3 @@
+# TaskGrid+ Runtime-Abhängigkeiten
+# Alle Kernkomponenten nutzen ausschließlich die Python-Standardbibliothek.
+# Keine externen Runtime-Abhängigkeiten — Bewusste Entscheidung (siehe ADR-001, ADR-002).
