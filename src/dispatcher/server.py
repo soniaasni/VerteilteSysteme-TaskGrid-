@@ -12,8 +12,10 @@ import grpc
 from proto import taskgrid_pb2_grpc
 from src.common.logger import get_logger
 from src.dispatcher.dispatch_loop import DispatchLoop
+from src.dispatcher.http_status_server import HttpStatusServer
 from src.dispatcher.namensdienst_client import NamensdienstClient
 from src.dispatcher.servicer import DispatcherServicer
+from src.dispatcher.status_collector import StatusCollector
 from src.dispatcher.task_queue import TaskQueue
 from src.dispatcher.task_store import TaskStore
 from src.dispatcher.worker_client import WorkerClient
@@ -34,7 +36,10 @@ def serve() -> None:
     dispatch_loop = DispatchLoop(store, task_queue, ns_client, selector, worker_client)
     dispatch_loop.start()
 
-    servicer = DispatcherServicer(store, task_queue, ns_client, dispatch_loop)
+    collector = StatusCollector(store, ns_client)
+    HttpStatusServer(collector).start()
+
+    servicer = DispatcherServicer(store, task_queue, ns_client, dispatch_loop, collector)
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     taskgrid_pb2_grpc.add_DispatcherServiceServicer_to_server(servicer, server)

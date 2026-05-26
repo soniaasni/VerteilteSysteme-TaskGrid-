@@ -21,6 +21,7 @@ from src.common.logger import get_logger, log_event
 from src.common.protocol import TaskState, new_task_id
 from src.dispatcher.namensdienst_client import NamensdienstClient
 from src.dispatcher.state_machine import InvalidTransitionError, is_terminal, transition
+from src.dispatcher.status_collector import StatusCollector
 from src.dispatcher.task import Task, MAX_TYPE_LEN, MAX_PAYLOAD_LEN
 from src.dispatcher.task_queue import TaskQueue
 from src.dispatcher.task_store import TaskStore
@@ -33,12 +34,14 @@ class DispatcherServicer(taskgrid_pb2_grpc.DispatcherServiceServicer):
 
     def __init__(self, store: TaskStore, task_queue: TaskQueue,
                  ns_client: NamensdienstClient,
-                 dispatch_loop=None) -> None:
+                 dispatch_loop=None,
+                 collector: StatusCollector | None = None) -> None:
         self._store         = store
         self._queue         = task_queue
         self._ns_client     = ns_client
         self._selector      = RoundRobinSelector()
         self._dispatch_loop = dispatch_loop
+        self._collector     = collector
 
     # ── Issue #14 ─────────────────────────────────────────────────────────────
 
@@ -142,11 +145,24 @@ class DispatcherServicer(taskgrid_pb2_grpc.DispatcherServiceServicer):
             result=task.result,
         )
 
+    # ── Issue #20 ─────────────────────────────────────────────────────────────
+
     def GetStatus(self, request, context):
-        # Issue #20
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details("GET_STATUS noch nicht implementiert (Issue #20)")
-        return taskgrid_pb2.StatusResponse()
+        """
+        GET_STATUS: Client → Dispatcher
+        Gibt Monitoring-Überblick zurück. Vollständige Daten über HTTP /status.
+        """
+        if self._collector is None:
+            return taskgrid_pb2.StatusResponse(details="{}")
+
+        data = self._collector.get_status()
+        import json
+        log_event(logger, "info", "GET_STATUS_queried", sender=request.sender)
+        return taskgrid_pb2.StatusResponse(
+            queued_tasks=data["offene_tasks"] + data["laufende_tasks"],
+            active_workers=data["aktive_worker"],
+            details=json.dumps(data, ensure_ascii=False),
+        )
 
     # ── Issue #16 (umbenannt: ReturnResult, Elena-kompatibel) ─────────────────
 
