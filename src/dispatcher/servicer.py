@@ -116,11 +116,38 @@ class DispatcherServicer(taskgrid_pb2_grpc.DispatcherServiceServicer):
 
     # ── Stubs (werden in separaten Issues implementiert) ──────────────────────
 
+    # ── Issue #17 ─────────────────────────────────────────────────────────────
+
     def GetResult(self, request, context):
-        # Issue #17
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details("GET_RESULT noch nicht implementiert (Issue #17)")
-        return taskgrid_pb2.ResultResponse()
+        """
+        GET_RESULT: Client → Dispatcher
+        Eingabe:  task_id
+        Rückgabe: ResultResponse(task_id, status, result)
+          - COMPLETED:              result = Ergebnis
+          - FAILED:                 result = Fehlermeldung
+          - alle anderen Zustände:  result = "", status = aktueller Zustand
+          - unbekannte task_id:     gRPC NOT_FOUND
+        """
+        rid     = request.request_id
+        task_id = request.task_id
+
+        task = self._store.get(task_id)
+        if task is None:
+            log_event(logger, "warning", "GET_RESULT_unknown_task",
+                      request_id=rid, task_id=task_id, sender=request.sender)
+            context.set_code(grpc.StatusCode.NOT_FOUND)
+            context.set_details(f"Task {task_id} nicht gefunden")
+            return taskgrid_pb2.ResultResponse(task_id=task_id, status="NOT_FOUND")
+
+        log_event(logger, "info", "GET_RESULT_queried",
+                  request_id=rid, task_id=task_id,
+                  status=task.status.value, sender=request.sender)
+
+        return taskgrid_pb2.ResultResponse(
+            task_id=task_id,
+            status=task.status.value,
+            result=task.result,
+        )
 
     def GetStatus(self, request, context):
         # Issue #20
