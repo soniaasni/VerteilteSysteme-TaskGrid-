@@ -34,7 +34,7 @@ def serve() -> None:
     dispatch_loop = DispatchLoop(store, task_queue, ns_client, selector, worker_client)
     dispatch_loop.start()
 
-    servicer = DispatcherServicer(store, task_queue, ns_client)
+    servicer = DispatcherServicer(store, task_queue, ns_client, dispatch_loop)
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     taskgrid_pb2_grpc.add_DispatcherServiceServicer_to_server(servicer, server)
