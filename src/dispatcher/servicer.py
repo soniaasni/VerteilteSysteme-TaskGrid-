@@ -1,8 +1,10 @@
 """
 gRPC-Servicer für den Dispatcher.
-Implementiert: PostTask (#13), lookup_worker (#14)
-Stubs für:     GetResult (#17), GetStatus (#20), ReceiveResult (#16)
+Implementiert: PostTask (#13), lookup_worker (#14), ReceiveResult (#16)
+Stubs für:     GetResult (#17), GetStatus (#20)
 """
+
+from __future__ import annotations
 
 import grpc
 
@@ -10,6 +12,7 @@ from proto import taskgrid_pb2, taskgrid_pb2_grpc
 from src.common.logger import get_logger, log_event
 from src.common.protocol import TaskState, new_task_id
 from src.dispatcher.namensdienst_client import NamensdienstClient
+from src.dispatcher.state_machine import InvalidTransitionError, is_terminal, transition
 from src.dispatcher.task import Task, MAX_TYPE_LEN, MAX_PAYLOAD_LEN
 from src.dispatcher.task_queue import TaskQueue
 from src.dispatcher.task_store import TaskStore
@@ -21,11 +24,13 @@ logger = get_logger("dispatcher")
 class DispatcherServicer(taskgrid_pb2_grpc.DispatcherServiceServicer):
 
     def __init__(self, store: TaskStore, task_queue: TaskQueue,
-                 ns_client: NamensdienstClient) -> None:
-        self._store = store
-        self._queue = task_queue
-        self._ns_client = ns_client
-        self._selector = RoundRobinSelector()
+                 ns_client: NamensdienstClient,
+                 dispatch_loop=None) -> None:
+        self._store         = store
+        self._queue         = task_queue
+        self._ns_client     = ns_client
+        self._selector      = RoundRobinSelector()
+        self._dispatch_loop = dispatch_loop   # für cancel_timeout (#16)
 
     # ── Issue #14 ─────────────────────────────────────────────────────────────
 
@@ -123,8 +128,54 @@ class DispatcherServicer(taskgrid_pb2_grpc.DispatcherServiceServicer):
         context.set_details("GET_STATUS noch nicht implementiert (Issue #20)")
         return taskgrid_pb2.StatusResponse()
 
+    # ── Issue #16 ─────────────────────────────────────────────────────────────
+
     def ReceiveResult(self, request, context):
-        # Issue #16
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details("RESULT_RETURN noch nicht implementiert (Issue #16)")
-        return taskgrid_pb2.Ack()
+        """
+        RESULT_RETURN: Worker → Dispatcher
+        Worker meldet fertiges Ergebnis (success=True) oder Fehler (success=False).
+        Terminale Tasks (COMPLETED/FAILED) werden ignoriert (Idempotenz, §5).
+        """
+        rid     = request.request_id
+        task_id = request.task_id
+
+        task = self._store.get(task_id)
+        if task is None:
+            log_event(logger, "warning", "RESULT_RETURN_unknown_task",
+                      request_id=rid, task_id=task_id, worker_id=request.worker_id)
+            return taskgrid_pb2.Ack(ok=False, message="unknown task_id")
+
+        # Verspätetes Ergebnis nach Timeout oder Duplikat → ignorieren
+        if is_terminal(task):
+            log_event(logger, "warning", "RESULT_RETURN_late",
+                      request_id=rid, task_id=task_id,
+                      worker_id=request.worker_id, status=task.status.value)
+            return taskgrid_pb2.Ack(ok=True, message="already terminal")
+
+        # Timeout-Timer abbrechen, da Ergebnis rechtzeitig eingetroffen
+        if self._dispatch_loop is not None:
+            self._dispatch_loop.cancel_timeout(task_id)
+
+        new_state = TaskState.COMPLETED if request.success else TaskState.FAILED
+        try:
+            transition(task, new_state)
+        except InvalidTransitionError as e:
+            log_event(logger, "error", "RESULT_RETURN_invalid_transition",
+                      request_id=rid, task_id=task_id, error=str(e))
+            return taskgrid_pb2.Ack(ok=False, message=str(e))
+
+        task.result = request.result if request.success else request.error_msg
+        self._store.update(task)
+
+        duration_ms = (
+            (task.timestamp_completed - task.timestamp_dispatched) * 1000
+            if task.timestamp_dispatched > 0 else 0
+        )
+        log_event(logger, "info", "RESULT_RETURN_stored",
+                  request_id=rid,
+                  task_id=task_id,
+                  worker_id=request.worker_id,
+                  status=task.status.value,
+                  duration_ms=duration_ms)
+
+        return taskgrid_pb2.Ack(ok=True)
