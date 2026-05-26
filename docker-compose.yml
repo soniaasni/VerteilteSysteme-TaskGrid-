@@ -1,0 +1,56 @@
+version: "3.9"
+
+services:
+
+  namensdienst:
+    build:
+      context: ./nameservice
+    container_name: namensdienst
+    ports:
+      - "50052:50052"
+    environment:
+      - NAMENSDIENST_PORT=50052
+    networks:
+      - taskgrid
+
+  dispatcher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dispatcher
+    ports:
+      - "50051:50051"       # gRPC
+      - "8080:8080"         # HTTP Monitoring (GET /status)
+    environment:
+      - DISPATCHER_PORT=50051
+      - STATUS_HTTP_PORT=8080
+      - NAMENSDIENST_HOST=namensdienst
+      - NAMENSDIENST_PORT=50052
+      - DISPATCH_TIMEOUT_SECONDS=30
+      - MAX_RETRIES=3
+    depends_on:
+      - namensdienst
+    networks:
+      - taskgrid
+
+  worker:
+    build:
+      context: ./worker
+    deploy:
+      replicas: 2
+    environment:
+      - WORKER_HOST=worker
+      - WORKER_PORT=50051
+      - DISPATCHER_HOST=dispatcher
+      - DISPATCHER_PORT=50051
+      - NAMENSDIENST_HOST=namensdienst
+      - NAMENSDIENST_PORT=50052
+    depends_on:
+      - namensdienst
+      - dispatcher
+    networks:
+      - taskgrid
+
+networks:
+  taskgrid:
+    driver: bridge
