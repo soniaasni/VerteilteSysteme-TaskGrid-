@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0etaskgrid.proto\x12\x08taskgrid\"U\n\x0bTaskRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x11\n\ttask_type\x18\x02 \x01(\t\x12\x0f\n\x07payload\x18\x03 \x01(\t\x12\x0e\n\x06sender\x18\x04 \x01(\t\"/\n\x0cTaskResponse\x12\x0f\n\x07task_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\"D\n\rResultRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x0f\n\x07task_id\x18\x02 \x01(\t\x12\x0e\n\x06sender\x18\x03 \x01(\t\"A\n\x0eResultResponse\x12\x0f\n\x07task_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\x0e\n\x06result\x18\x03 \x01(\t\"z\n\x0cResultReturn\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x0f\n\x07task_id\x18\x02 \x01(\t\x12\x11\n\tworker_id\x18\x03 \x01(\t\x12\x0e\n\x06result\x18\x04 \x01(\t\x12\x0f\n\x07success\x18\x05 \x01(\x08\x12\x11\n\terror_msg\x18\x06 \x01(\t\"\"\n\x03\x41\x63k\x12\n\n\x02ok\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\"\x1f\n\rStatusRequest\x12\x0e\n\x06sender\x18\x01 \x01(\t\"O\n\x0eStatusResponse\x12\x14\n\x0cqueued_tasks\x18\x01 \x01(\x05\x12\x16\n\x0e\x61\x63tive_workers\x18\x02 \x01(\x05\x12\x0f\n\x07\x64\x65tails\x18\x03 \x01(\t\"h\n\x0fRegisterRequest\x12\x11\n\tworker_id\x18\x01 \x01(\t\x12\x11\n\ttask_type\x18\x02 \x01(\t\x12\x0f\n\x07\x61\x64\x64ress\x18\x03 \x01(\t\x12\x0c\n\x04port\x18\x04 \x01(\x05\x12\x10\n\x08\x63\x61pacity\x18\x05 \x01(\x05\";\n\x10HeartbeatRequest\x12\x11\n\tworker_id\x18\x01 \x01(\t\x12\x14\n\x0c\x63urrent_load\x18\x02 \x01(\x05\"\"\n\rLookupRequest\x12\x11\n\ttask_type\x18\x01 \x01(\t\"Q\n\x0eLookupResponse\x12\r\n\x05\x66ound\x18\x01 \x01(\x08\x12\x11\n\tworker_id\x18\x02 \x01(\t\x12\x0f\n\x07\x61\x64\x64ress\x18\x03 \x01(\t\x12\x0c\n\x04port\x18\x04 \x01(\x05\"&\n\x11\x44\x65registerRequest\x12\x11\n\tworker_id\x18\x01 \x01(\t\"F\n\x0f\x44ispatchRequest\x12\x0f\n\x07task_id\x18\x01 \x01(\t\x12\x11\n\ttask_type\x18\x02 \x01(\t\x12\x0f\n\x07payload\x18\x03 \x01(\t2\x86\x02\n\x11\x44ispatcherService\x12\x39\n\x08PostTask\x12\x15.taskgrid.TaskRequest\x1a\x16.taskgrid.TaskResponse\x12>\n\tGetResult\x12\x17.taskgrid.ResultRequest\x1a\x18.taskgrid.ResultResponse\x12>\n\tGetStatus\x12\x17.taskgrid.StatusRequest\x1a\x18.taskgrid.StatusResponse\x12\x36\n\rReceiveResult\x12\x16.taskgrid.ResultReturn\x1a\r.taskgrid.Ack2\x8c\x02\n\x13NamensdienstService\x12:\n\x0eRegisterWorker\x12\x19.taskgrid.RegisterRequest\x1a\r.taskgrid.Ack\x12\x36\n\tHeartbeat\x12\x1a.taskgrid.HeartbeatRequest\x1a\r.taskgrid.Ack\x12\x41\n\x0cLookupWorker\x12\x17.taskgrid.LookupRequest\x1a\x18.taskgrid.LookupResponse\x12>\n\x10\x44\x65registerWorker\x12\x1b.taskgrid.DeregisterRequest\x1a\r.taskgrid.Ack2I\n\rWorkerService\x12\x38\n\x0c\x44ispatchTask\x12\x19.taskgrid.DispatchRequest\x1a\r.taskgrid.Ackb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0etaskgrid.proto\x12\x08taskgrid\"U\n\x0bTaskRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x11\n\ttask_type\x18\x02 \x01(\t\x12\x0f\n\x07payload\x18\x03 \x01(\t\x12\x0e\n\x06sender\x18\x04 \x01(\t\"/\n\x0cTaskResponse\x12\x0f\n\x07task_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\"D\n\rResultRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x0f\n\x07task_id\x18\x02 \x01(\t\x12\x0e\n\x06sender\x18\x03 \x01(\t\"A\n\x0eResultResponse\x12\x0f\n\x07task_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\x0e\n\x06result\x18\x03 \x01(\t\"z\n\x0cResultReturn\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x0f\n\x07task_id\x18\x02 \x01(\t\x12\x11\n\tworker_id\x18\x03 \x01(\t\x12\x0e\n\x06result\x18\x04 \x01(\t\x12\x0f\n\x07success\x18\x05 \x01(\x08\x12\x11\n\terror_msg\x18\x06 \x01(\t\"\"\n\x03\x41\x63k\x12\n\n\x02ok\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\"\x1f\n\rStatusRequest\x12\x0e\n\x06sender\x18\x01 \x01(\t\"O\n\x0eStatusResponse\x12\x14\n\x0cqueued_tasks\x18\x01 \x01(\x05\x12\x16\n\x0e\x61\x63tive_workers\x18\x02 \x01(\x05\x12\x0f\n\x07\x64\x65tails\x18\x03 \x01(\t\"h\n\x0fRegisterRequest\x12\x11\n\tworker_id\x18\x01 \x01(\t\x12\x11\n\ttask_type\x18\x02 \x01(\t\x12\x0f\n\x07\x61\x64\x64ress\x18\x03 \x01(\t\x12\x0c\n\x04port\x18\x04 \x01(\x05\x12\x10\n\x08\x63\x61pacity\x18\x05 \x01(\x05\";\n\x10HeartbeatRequest\x12\x11\n\tworker_id\x18\x01 \x01(\t\x12\x14\n\x0c\x63urrent_load\x18\x02 \x01(\x05\"\"\n\rLookupRequest\x12\x11\n\ttask_type\x18\x01 \x01(\t\"T\n\nWorkerInfo\x12\x11\n\tworker_id\x18\x01 \x01(\t\x12\x0f\n\x07\x61\x64\x64ress\x18\x02 \x01(\t\x12\x0c\n\x04port\x18\x03 \x01(\x05\x12\x14\n\x0c\x63urrent_load\x18\x04 \x01(\x05\"F\n\x0eLookupResponse\x12\r\n\x05\x66ound\x18\x01 \x01(\x08\x12%\n\x07workers\x18\x02 \x03(\x0b\x32\x14.taskgrid.WorkerInfo\"&\n\x11\x44\x65registerRequest\x12\x11\n\tworker_id\x18\x01 \x01(\t\"F\n\x0f\x44ispatchRequest\x12\x0f\n\x07task_id\x18\x01 \x01(\t\x12\x11\n\ttask_type\x18\x02 \x01(\t\x12\x0f\n\x07payload\x18\x03 \x01(\t2\x86\x02\n\x11\x44ispatcherService\x12\x39\n\x08PostTask\x12\x15.taskgrid.TaskRequest\x1a\x16.taskgrid.TaskResponse\x12>\n\tGetResult\x12\x17.taskgrid.ResultRequest\x1a\x18.taskgrid.ResultResponse\x12>\n\tGetStatus\x12\x17.taskgrid.StatusRequest\x1a\x18.taskgrid.StatusResponse\x12\x36\n\rReceiveResult\x12\x16.taskgrid.ResultReturn\x1a\r.taskgrid.Ack2\x8c\x02\n\x13NamensdienstService\x12:\n\x0eRegisterWorker\x12\x19.taskgrid.RegisterRequest\x1a\r.taskgrid.Ack\x12\x36\n\tHeartbeat\x12\x1a.taskgrid.HeartbeatRequest\x1a\r.taskgrid.Ack\x12\x41\n\x0cLookupWorker\x12\x17.taskgrid.LookupRequest\x1a\x18.taskgrid.LookupResponse\x12>\n\x10\x44\x65registerWorker\x12\x1b.taskgrid.DeregisterRequest\x1a\r.taskgrid.Ack2I\n\rWorkerService\x12\x38\n\x0c\x44ispatchTask\x12\x19.taskgrid.DispatchRequest\x1a\r.taskgrid.Ackb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -53,16 +53,18 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_HEARTBEATREQUEST']._serialized_end=740
   _globals['_LOOKUPREQUEST']._serialized_start=742
   _globals['_LOOKUPREQUEST']._serialized_end=776
-  _globals['_LOOKUPRESPONSE']._serialized_start=778
-  _globals['_LOOKUPRESPONSE']._serialized_end=859
-  _globals['_DEREGISTERREQUEST']._serialized_start=861
-  _globals['_DEREGISTERREQUEST']._serialized_end=899
-  _globals['_DISPATCHREQUEST']._serialized_start=901
-  _globals['_DISPATCHREQUEST']._serialized_end=971
-  _globals['_DISPATCHERSERVICE']._serialized_start=974
-  _globals['_DISPATCHERSERVICE']._serialized_end=1236
-  _globals['_NAMENSDIENSTSERVICE']._serialized_start=1239
-  _globals['_NAMENSDIENSTSERVICE']._serialized_end=1507
-  _globals['_WORKERSERVICE']._serialized_start=1509
-  _globals['_WORKERSERVICE']._serialized_end=1582
+  _globals['_WORKERINFO']._serialized_start=778
+  _globals['_WORKERINFO']._serialized_end=862
+  _globals['_LOOKUPRESPONSE']._serialized_start=864
+  _globals['_LOOKUPRESPONSE']._serialized_end=934
+  _globals['_DEREGISTERREQUEST']._serialized_start=936
+  _globals['_DEREGISTERREQUEST']._serialized_end=974
+  _globals['_DISPATCHREQUEST']._serialized_start=976
+  _globals['_DISPATCHREQUEST']._serialized_end=1046
+  _globals['_DISPATCHERSERVICE']._serialized_start=1049
+  _globals['_DISPATCHERSERVICE']._serialized_end=1311
+  _globals['_NAMENSDIENSTSERVICE']._serialized_start=1314
+  _globals['_NAMENSDIENSTSERVICE']._serialized_end=1582
+  _globals['_WORKERSERVICE']._serialized_start=1584
+  _globals['_WORKERSERVICE']._serialized_end=1657
 # @@protoc_insertion_point(module_scope)
