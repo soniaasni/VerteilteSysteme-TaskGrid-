@@ -1,0 +1,94 @@
+\documentclass[a4paper,12pt]{article}
+
+% -----------------------------------------
+% Pakete und Einstellungen
+% -----------------------------------------
+\usepackage[a4paper, left=2.5cm, right=2.5cm, top=1cm, bottom=2.5cm, includehead]{geometry} 
+\usepackage[ngerman]{babel}
+\usepackage{fontspec}
+\setmainfont{Arial}
+\usepackage{csquotes}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{color}
+\usepackage[
+    backend=biber,
+    style=numeric,
+    sorting=nyt
+]{biblatex}
+\makeatletter
+\let\blx@warn@emptybib\relax
+\makeatother
+\usepackage{setspace}
+\usepackage{graphicx}
+\graphicspath{
+  {images/}
+  {tables/}
+}
+\usepackage{caption}
+\usepackage[acronym,nonumberlist]{glossaries}
+\makeglossaries
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage[table]{xcolor}
+\usepackage{array}
+\usepackage{adjustbox}  % max width=\textwidth
+\addbibresource{literatur/T2000.bib}
+
+
+\definecolor{lightgray}{rgb}{0.95,0.95,0.95}
+\lstset{
+    backgroundcolor=\color{lightgray},
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single
+}
+\setstretch{1.5}                % Zeilenabstand: 1.5 (Standard: 1.2)
+\begin{document}
+\pagenumbering{gobble} % unterdrückt Seitenzahlen komplett
+
+\include{Titelblatt}
+\thispagestyle{empty}
+
+\cleardoublepage
+\pagenumbering{Roman}
+\tableofcontents
+\newpage
+
+\input{Abkuerzungen}
+\addcontentsline{toc}{section}{Abkürzungsverzeichnis}
+\glsaddall[types={\acronymtype}]
+\printglossary[type=\acronymtype,title=Abkürzungsverzeichnis]
+\newpage
+
+\addcontentsline{toc}{section}{Abbildungsverzeichnis}
+\listoffigures
+\newpage
+
+\addcontentsline{toc}{section}{Tabellenverzeichnis}
+\listoftables
+\newpage
+
+
+% usw.
+\pagenumbering{arabic}
+\input{Einleitung} \newpage
+\input{Systemarchitektur}\newpage
+\input{KommunikationSchnittstellen}\newpage
+\input{DatenmodellZustandsverwaltung}\newpage
+\input{NamensdienstWorker}\newpage
+\input{TechnologienImplementierung}\newpage
+\input{TestsValidierung}\newpage
+\input{Architekturentscheidungen}\newpage
+\input{Fazit}\newpage
+
+\cleardoublepage
+\pagenumbering{Roman}
+\setcounter{page}{5}
+
+
+
+\appendix
+\end{document}

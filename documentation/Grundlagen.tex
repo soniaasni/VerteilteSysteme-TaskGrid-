@@ -1,0 +1,74 @@
+\section{Grundlagen}
+\subsection{Überblick Autonomes Fahren} 
+(bei Modellautos)
+\subsection{LIDASensorik} 
+in autonomen Systemen: Prinzipien, etablierte Lösungen
+
+\subsection{Relevante Algorithmen und Architekturkonzepte}
+(mit Blick auf wissenschaftliche Literatur)
+
+•	Überblick über SLAM, Hinderniserkennung, Navigation
+
+\subsection{Ultraschall Abstandssensor HCSR04}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{images/HCSR04_Aufbau.png}
+\caption{Aufbau des HCSR04}
+\label{fig:hcsr04_aufbau}
+\end{figure}
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{p{0.32\textwidth} p{0.62\textwidth}}
+\toprule
+Komponente & Funktion \\
+\midrule
+Control Circuit & Startet den Messvorgang und koordiniert alle Schritte \\
+Pulse Transmission Circuit & Formt das Startsignal für den Sender \\
+Ultraschallsender & Wandelt das elektrische Signal in Schallwellen \\
+Ultraschallempfänger & Wandelt reflektierte Schallwellen zurück in ein elektrisches Signal \\
+Receiving Circuit & Verarbeitet das empfangene Signal zur Zeitmessung \\
+Counter Circuit & Zählt Taktimpulse während der Laufzeit des Signals \\
+Standard Oscillation Circuit & Gibt präzise Taktsignale für die Zeitmessung aus \\
+\bottomrule
+\end{tabular}
+\caption{Beteiligte Baugruppen am HCSR04 im Überblick}
+\label{tab:hcsr04_baugruppen}
+\end{table}
+
+Die Abbildung~\ref{fig:hcsr04_aufbau} und Tabelle~\ref{tab:hcsr04_baugruppen} beschreiben den Aufbau des HCSR04 und dessen Funktionsweise. Zur Ermittlung der Distanz durchläuft der Sensor die folgenden Schritte.
+
+\paragraph{Steuerung und Signalübertragung}
+Das Control Circuit initiiert den Messvorgang durch ein Startsignal. Dieses Startsignal wird an die Pulse Transmission Circuit gesendet.
+
+\paragraph{Aussenden des Ultraschalls}
+Der Ultraschallsender wandelt das elektrische Signal in einen Ultraschallimpuls um, der in Richtung des zu messenden Objekts ausgesendet wird.
+
+\paragraph{Reflexion und Empfang}
+Der Schall trifft auf ein Objekt, wird reflektiert und kehrt zum System zurück. Der Ultraschallempfänger nimmt das reflektierte Signal auf. Anschließend wird das Signal an die Receiving Circuit weitergegeben.
+
+\paragraph{Zeitmessung}
+Die Zeit zwischen Senden und Empfangen wird als Reflection Time \(T\) gemessen. Die Zeitmessung erfolgt über die Counter Circuit, die auf Basis der Standard Oscillation Circuit präzise Takte zählt.
+
+\paragraph{Berechnung der Entfernung}
+Die Entfernung \(L\) zum Objekt ergibt sich aus der Laufzeitmessung nach:
+
+\begin{equation}
+L = \frac{v \cdot T}{2}
+\label{eq:distanz_hcsr04}
+\end{equation}
+
+wobei \(v\) die Schallgeschwindigkeit in Luft ist (ca. 343 m/s bei Raumtemperatur). Der Faktor 2 berücksichtigt den Hin- und Rückweg des Ultraschallsignals.
+
+\subsection{Erkennungswinkel des HCSR04}
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.75\textwidth]{images/HCSR04_Erkennungswinkel.png}
+\caption{Optimaler Erkennungswinkel}
+\label{fig:hcsr04_erkennungswinkel}
+\end{figure}
+
+Die Abbildung~\ref{fig:hcsr04_erkennungswinkel} zeigt den optimalen Erkennungswinkel des HCSR04. Innerhalb dieses Winkels kann der Sensor Objekte zuverlässig detektieren. Außerhalb dieses Bereichs nimmt die Genauigkeit der Messung ab, was bei der Platzierung der Sensoren berücksichtigt werden muss.   
