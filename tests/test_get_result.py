@@ -24,15 +24,15 @@ def _make_servicer():
     return servicer, store
 
 
-def _result_request(task_id="t1", sender="client-1", request_id="r1"):
-    return taskgrid_pb2.ResultRequest(
+def _result_request(task_id=1, sender="client-1", request_id="r1"):
+    return taskgrid_pb2.GetResultRequest(
         request_id=request_id,
         task_id=task_id,
         sender=sender,
     )
 
 
-def _task(task_id="t1", status=TaskState.COMPLETED, result=""):
+def _task(task_id="1", status=TaskState.COMPLETED, result=""):
     t = Task(task_id=task_id, task_type="sum", payload="1,2")
     t.status = status
     t.result = result
@@ -48,7 +48,7 @@ def test_completed_returns_result_and_status():
     ctx = MagicMock()
     resp = servicer.GetResult(_result_request(), ctx)
 
-    assert resp.task_id == "t1"
+    assert resp.task_id == 1
     assert resp.status == TaskState.COMPLETED.value
     assert resp.result == "42"
     ctx.set_code.assert_not_called()
@@ -103,7 +103,7 @@ def test_unknown_task_id_returns_not_found():
     servicer, store = _make_servicer()
 
     ctx = MagicMock()
-    resp = servicer.GetResult(_result_request(task_id="ghost"), ctx)
+    resp = servicer.GetResult(_result_request(task_id=999), ctx)
 
     ctx.set_code.assert_called_once_with(grpc.StatusCode.NOT_FOUND)
     assert resp.status == "NOT_FOUND"
@@ -113,17 +113,17 @@ def test_unknown_task_id_sets_details():
     servicer, store = _make_servicer()
 
     ctx = MagicMock()
-    servicer.GetResult(_result_request(task_id="missing"), ctx)
+    servicer.GetResult(_result_request(task_id=888), ctx)
 
     ctx.set_details.assert_called_once()
-    assert "missing" in ctx.set_details.call_args[0][0]
+    assert "888" in ctx.set_details.call_args[0][0]
 
 
 def test_task_id_in_response():
     servicer, store = _make_servicer()
-    store.add(_task(task_id="abc123", status=TaskState.COMPLETED, result="ok"))
+    store.add(_task(task_id="1", status=TaskState.COMPLETED, result="ok"))
 
     ctx = MagicMock()
-    resp = servicer.GetResult(_result_request(task_id="abc123"), ctx)
+    resp = servicer.GetResult(_result_request(task_id=1), ctx)
 
-    assert resp.task_id == "abc123"
+    assert resp.task_id == 1

@@ -1,7 +1,15 @@
 """
 gRPC-Servicer für den Dispatcher.
-Implementiert: PostTask (#13), lookup_worker (#14), ReceiveResult (#16)
-Stubs für:     GetResult (#17), GetStatus (#20)
+Implementiert: PostTask (#13), lookup_worker (#14), ReturnResult (#16), GetResult (#17)
+Stubs für:     GetStatus (#20)
+
+Proto-Kompatibilität: Elena (worker/proto/taskgrid.proto)
+  - ReturnResult statt ReceiveResult
+  - task_id als int32 an gRPC-Grenze, intern als str
+  - task_payload statt payload
+  - status="COMPLETED"/"FAILED" statt success=bool
+  - error statt error_msg
+  - Ack.success statt Ack.ok
 """
 
 from __future__ import annotations
@@ -30,17 +38,11 @@ class DispatcherServicer(taskgrid_pb2_grpc.DispatcherServiceServicer):
         self._queue         = task_queue
         self._ns_client     = ns_client
         self._selector      = RoundRobinSelector()
-        self._dispatch_loop = dispatch_loop   # für cancel_timeout (#16)
+        self._dispatch_loop = dispatch_loop
 
     # ── Issue #14 ─────────────────────────────────────────────────────────────
 
     def lookup_worker(self, task_type: str, request_id: str = ""):
-        """
-        LOOKUP_WORKER: Fragt Namensdienst nach verfügbaren Workern für task_type
-        und wählt einen per Round-Robin aus.
-        Gibt WorkerInfo oder None zurück (kein Worker verfügbar / NS nicht erreichbar).
-        Dispatcher-Code enthält KEINE statischen Worker-Adressen.
-        """
         workers = self._ns_client.lookup_worker(task_type, request_id)
         selected = self._selector.select(task_type, workers)
 
@@ -61,12 +63,11 @@ class DispatcherServicer(taskgrid_pb2_grpc.DispatcherServiceServicer):
     def PostTask(self, request, context):
         """
         POST_TASK: Client → Dispatcher
-        Eingabe:  task_type, payload, sender, request_id
-        Rückgabe: task_id + status=QUEUED  oder  gRPC-Fehlercode
+        Eingabe:  PostTaskRequest(request_id, task_type, task_payload, sender)
+        Rückgabe: TaskResponse(task_id, status) oder gRPC-Fehlercode
         """
         rid = request.request_id
 
-        # Eingabevalidierung (Aufgabenstellung: Fehlerfall "ungültige Payload")
         if not request.task_type:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
             context.set_details("task_type darf nicht leer sein")
@@ -81,24 +82,21 @@ class DispatcherServicer(taskgrid_pb2_grpc.DispatcherServiceServicer):
                       request_id=rid, reason="task_type_too_long")
             return taskgrid_pb2.TaskResponse()
 
-        if len(request.payload) > MAX_PAYLOAD_LEN:
+        if len(request.task_payload) > MAX_PAYLOAD_LEN:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
             context.set_details(f"payload zu groß (max {MAX_PAYLOAD_LEN} Zeichen)")
             log_event(logger, "warning", "POST_TASK_rejected",
                       request_id=rid, reason="payload_too_large")
             return taskgrid_pb2.TaskResponse()
 
-        # Task anlegen: CREATED → QUEUED
         task_id = new_task_id()
         task = Task(
             task_id=task_id,
             task_type=request.task_type,
-            payload=request.payload,
-            status=TaskState.CREATED,
+            payload=request.task_payload,
+            status=TaskState.QUEUED,
         )
-        task.status = TaskState.QUEUED
 
-        # Speichern und einreihen
         self._store.add(task)
         self._queue.enqueue(task)
 
@@ -107,29 +105,24 @@ class DispatcherServicer(taskgrid_pb2_grpc.DispatcherServiceServicer):
                   task_id=task_id,
                   task_type=request.task_type,
                   sender=request.sender,
+                  status=TaskState.QUEUED.value,
                   queue_size=self._queue.size())
 
         return taskgrid_pb2.TaskResponse(
-            task_id=task_id,
+            task_id=int(task_id),      # int32 für Proto-Kompatibilität
             status=TaskState.QUEUED.value,
         )
-
-    # ── Stubs (werden in separaten Issues implementiert) ──────────────────────
 
     # ── Issue #17 ─────────────────────────────────────────────────────────────
 
     def GetResult(self, request, context):
         """
         GET_RESULT: Client → Dispatcher
-        Eingabe:  task_id
+        Eingabe:  GetResultRequest(request_id, task_id: int32, sender)
         Rückgabe: ResultResponse(task_id, status, result)
-          - COMPLETED:              result = Ergebnis
-          - FAILED:                 result = Fehlermeldung
-          - alle anderen Zustände:  result = "", status = aktueller Zustand
-          - unbekannte task_id:     gRPC NOT_FOUND
         """
         rid     = request.request_id
-        task_id = request.task_id
+        task_id = str(request.task_id)   # int32 → string intern
 
         task = self._store.get(task_id)
         if task is None:
@@ -137,14 +130,14 @@ class DispatcherServicer(taskgrid_pb2_grpc.DispatcherServiceServicer):
                       request_id=rid, task_id=task_id, sender=request.sender)
             context.set_code(grpc.StatusCode.NOT_FOUND)
             context.set_details(f"Task {task_id} nicht gefunden")
-            return taskgrid_pb2.ResultResponse(task_id=task_id, status="NOT_FOUND")
+            return taskgrid_pb2.ResultResponse(task_id=request.task_id, status="NOT_FOUND")
 
         log_event(logger, "info", "GET_RESULT_queried",
                   request_id=rid, task_id=task_id,
                   status=task.status.value, sender=request.sender)
 
         return taskgrid_pb2.ResultResponse(
-            task_id=task_id,
+            task_id=int(task_id),
             status=task.status.value,
             result=task.result,
         )
@@ -155,43 +148,44 @@ class DispatcherServicer(taskgrid_pb2_grpc.DispatcherServiceServicer):
         context.set_details("GET_STATUS noch nicht implementiert (Issue #20)")
         return taskgrid_pb2.StatusResponse()
 
-    # ── Issue #16 ─────────────────────────────────────────────────────────────
+    # ── Issue #16 (umbenannt: ReturnResult, Elena-kompatibel) ─────────────────
 
-    def ReceiveResult(self, request, context):
+    def ReturnResult(self, request, context):
         """
-        RESULT_RETURN: Worker → Dispatcher
-        Worker meldet fertiges Ergebnis (success=True) oder Fehler (success=False).
-        Terminale Tasks (COMPLETED/FAILED) werden ignoriert (Idempotenz, §5).
+        RESULT_RETURN: Worker → Dispatcher  (Elena: ReturnResult)
+        Worker meldet Ergebnis per status="COMPLETED" oder status="FAILED".
+        Terminale Tasks werden ignoriert (Idempotenz §5).
+        task_id kommt als int32, wird intern als string gespeichert.
         """
         rid     = request.request_id
-        task_id = request.task_id
+        task_id = str(request.task_id)   # int32 → string
 
         task = self._store.get(task_id)
         if task is None:
             log_event(logger, "warning", "RESULT_RETURN_unknown_task",
                       request_id=rid, task_id=task_id, worker_id=request.worker_id)
-            return taskgrid_pb2.Ack(ok=False, message="unknown task_id")
+            return taskgrid_pb2.Ack(success=False, message="unknown task_id")
 
-        # Verspätetes Ergebnis nach Timeout oder Duplikat → ignorieren
         if is_terminal(task):
             log_event(logger, "warning", "RESULT_RETURN_late",
                       request_id=rid, task_id=task_id,
                       worker_id=request.worker_id, status=task.status.value)
-            return taskgrid_pb2.Ack(ok=True, message="already terminal")
+            return taskgrid_pb2.Ack(success=True, message="already terminal")
 
-        # Timeout-Timer abbrechen, da Ergebnis rechtzeitig eingetroffen
         if self._dispatch_loop is not None:
             self._dispatch_loop.cancel_timeout(task_id)
 
-        new_state = TaskState.COMPLETED if request.success else TaskState.FAILED
+        # Elena: status="COMPLETED"/"FAILED" statt success=bool
+        new_state = TaskState.COMPLETED if request.status == "COMPLETED" else TaskState.FAILED
         try:
             transition(task, new_state)
         except InvalidTransitionError as e:
             log_event(logger, "error", "RESULT_RETURN_invalid_transition",
                       request_id=rid, task_id=task_id, error=str(e))
-            return taskgrid_pb2.Ack(ok=False, message=str(e))
+            return taskgrid_pb2.Ack(success=False, message=str(e))
 
-        task.result = request.result if request.success else request.error_msg
+        # Elena: error statt error_msg
+        task.result = request.result if request.status == "COMPLETED" else request.error
         self._store.update(task)
 
         duration_ms = (
@@ -205,4 +199,4 @@ class DispatcherServicer(taskgrid_pb2_grpc.DispatcherServiceServicer):
                   status=task.status.value,
                   duration_ms=duration_ms)
 
-        return taskgrid_pb2.Ack(ok=True)
+        return taskgrid_pb2.Ack(success=True)

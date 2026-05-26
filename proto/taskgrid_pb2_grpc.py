@@ -25,11 +25,224 @@ if _version_not_supported:
     )
 
 
-class DispatcherServiceStub(object):
-    """──────────────────────────────────────────────
-    DispatcherService  (Client → Dispatcher)
-    ──────────────────────────────────────────────
+class NamingServiceStub(object):
+    """──────────────────────────────────────────────────────────────────────────────
+    Services
+    ──────────────────────────────────────────────────────────────────────────────
 
+    NamingService (Elena-kompatibel) — implementiert von Xplosy
+    """
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.RegisterWorker = channel.unary_unary(
+                '/taskgrid.NamingService/RegisterWorker',
+                request_serializer=taskgrid__pb2.WorkerInfo.SerializeToString,
+                response_deserializer=taskgrid__pb2.Ack.FromString,
+                _registered_method=True)
+        self.SendHeartbeat = channel.unary_unary(
+                '/taskgrid.NamingService/SendHeartbeat',
+                request_serializer=taskgrid__pb2.HeartbeatRequest.SerializeToString,
+                response_deserializer=taskgrid__pb2.Ack.FromString,
+                _registered_method=True)
+        self.DeregisterWorker = channel.unary_unary(
+                '/taskgrid.NamingService/DeregisterWorker',
+                request_serializer=taskgrid__pb2.WorkerInfo.SerializeToString,
+                response_deserializer=taskgrid__pb2.Ack.FromString,
+                _registered_method=True)
+        self.LookupWorker = channel.unary_unary(
+                '/taskgrid.NamingService/LookupWorker',
+                request_serializer=taskgrid__pb2.LookupRequest.SerializeToString,
+                response_deserializer=taskgrid__pb2.LookupResponse.FromString,
+                _registered_method=True)
+
+
+class NamingServiceServicer(object):
+    """──────────────────────────────────────────────────────────────────────────────
+    Services
+    ──────────────────────────────────────────────────────────────────────────────
+
+    NamingService (Elena-kompatibel) — implementiert von Xplosy
+    """
+
+    def RegisterWorker(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SendHeartbeat(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DeregisterWorker(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def LookupWorker(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+
+def add_NamingServiceServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+            'RegisterWorker': grpc.unary_unary_rpc_method_handler(
+                    servicer.RegisterWorker,
+                    request_deserializer=taskgrid__pb2.WorkerInfo.FromString,
+                    response_serializer=taskgrid__pb2.Ack.SerializeToString,
+            ),
+            'SendHeartbeat': grpc.unary_unary_rpc_method_handler(
+                    servicer.SendHeartbeat,
+                    request_deserializer=taskgrid__pb2.HeartbeatRequest.FromString,
+                    response_serializer=taskgrid__pb2.Ack.SerializeToString,
+            ),
+            'DeregisterWorker': grpc.unary_unary_rpc_method_handler(
+                    servicer.DeregisterWorker,
+                    request_deserializer=taskgrid__pb2.WorkerInfo.FromString,
+                    response_serializer=taskgrid__pb2.Ack.SerializeToString,
+            ),
+            'LookupWorker': grpc.unary_unary_rpc_method_handler(
+                    servicer.LookupWorker,
+                    request_deserializer=taskgrid__pb2.LookupRequest.FromString,
+                    response_serializer=taskgrid__pb2.LookupResponse.SerializeToString,
+            ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler(
+            'taskgrid.NamingService', rpc_method_handlers)
+    server.add_generic_rpc_handlers((generic_handler,))
+    server.add_registered_method_handlers('taskgrid.NamingService', rpc_method_handlers)
+
+
+ # This class is part of an EXPERIMENTAL API.
+class NamingService(object):
+    """──────────────────────────────────────────────────────────────────────────────
+    Services
+    ──────────────────────────────────────────────────────────────────────────────
+
+    NamingService (Elena-kompatibel) — implementiert von Xplosy
+    """
+
+    @staticmethod
+    def RegisterWorker(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/taskgrid.NamingService/RegisterWorker',
+            taskgrid__pb2.WorkerInfo.SerializeToString,
+            taskgrid__pb2.Ack.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SendHeartbeat(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/taskgrid.NamingService/SendHeartbeat',
+            taskgrid__pb2.HeartbeatRequest.SerializeToString,
+            taskgrid__pb2.Ack.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DeregisterWorker(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/taskgrid.NamingService/DeregisterWorker',
+            taskgrid__pb2.WorkerInfo.SerializeToString,
+            taskgrid__pb2.Ack.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def LookupWorker(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/taskgrid.NamingService/LookupWorker',
+            taskgrid__pb2.LookupRequest.SerializeToString,
+            taskgrid__pb2.LookupResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+
+class DispatcherServiceStub(object):
+    """DispatcherService — Client → Dispatcher + Worker → Dispatcher
     """
 
     def __init__(self, channel):
@@ -40,12 +253,12 @@ class DispatcherServiceStub(object):
         """
         self.PostTask = channel.unary_unary(
                 '/taskgrid.DispatcherService/PostTask',
-                request_serializer=taskgrid__pb2.TaskRequest.SerializeToString,
+                request_serializer=taskgrid__pb2.PostTaskRequest.SerializeToString,
                 response_deserializer=taskgrid__pb2.TaskResponse.FromString,
                 _registered_method=True)
         self.GetResult = channel.unary_unary(
                 '/taskgrid.DispatcherService/GetResult',
-                request_serializer=taskgrid__pb2.ResultRequest.SerializeToString,
+                request_serializer=taskgrid__pb2.GetResultRequest.SerializeToString,
                 response_deserializer=taskgrid__pb2.ResultResponse.FromString,
                 _registered_method=True)
         self.GetStatus = channel.unary_unary(
@@ -53,44 +266,37 @@ class DispatcherServiceStub(object):
                 request_serializer=taskgrid__pb2.StatusRequest.SerializeToString,
                 response_deserializer=taskgrid__pb2.StatusResponse.FromString,
                 _registered_method=True)
-        self.ReceiveResult = channel.unary_unary(
-                '/taskgrid.DispatcherService/ReceiveResult',
-                request_serializer=taskgrid__pb2.ResultReturn.SerializeToString,
+        self.ReturnResult = channel.unary_unary(
+                '/taskgrid.DispatcherService/ReturnResult',
+                request_serializer=taskgrid__pb2.ResultRequest.SerializeToString,
                 response_deserializer=taskgrid__pb2.Ack.FromString,
                 _registered_method=True)
 
 
 class DispatcherServiceServicer(object):
-    """──────────────────────────────────────────────
-    DispatcherService  (Client → Dispatcher)
-    ──────────────────────────────────────────────
-
+    """DispatcherService — Client → Dispatcher + Worker → Dispatcher
     """
 
     def PostTask(self, request, context):
-        """POST_TASK: Client gibt Task ab, erhält task_id zurück
-        """
+        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def GetResult(self, request, context):
-        """GET_RESULT: Client fragt Ergebnis ab
-        """
+        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def GetStatus(self, request, context):
-        """GET_STATUS: Monitoring fragt Systemzustand ab
-        """
+        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def ReceiveResult(self, request, context):
-        """RESULT_RETURN: Worker liefert fertiges Ergebnis zurück
-        """
+    def ReturnResult(self, request, context):
+        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -100,12 +306,12 @@ def add_DispatcherServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'PostTask': grpc.unary_unary_rpc_method_handler(
                     servicer.PostTask,
-                    request_deserializer=taskgrid__pb2.TaskRequest.FromString,
+                    request_deserializer=taskgrid__pb2.PostTaskRequest.FromString,
                     response_serializer=taskgrid__pb2.TaskResponse.SerializeToString,
             ),
             'GetResult': grpc.unary_unary_rpc_method_handler(
                     servicer.GetResult,
-                    request_deserializer=taskgrid__pb2.ResultRequest.FromString,
+                    request_deserializer=taskgrid__pb2.GetResultRequest.FromString,
                     response_serializer=taskgrid__pb2.ResultResponse.SerializeToString,
             ),
             'GetStatus': grpc.unary_unary_rpc_method_handler(
@@ -113,9 +319,9 @@ def add_DispatcherServiceServicer_to_server(servicer, server):
                     request_deserializer=taskgrid__pb2.StatusRequest.FromString,
                     response_serializer=taskgrid__pb2.StatusResponse.SerializeToString,
             ),
-            'ReceiveResult': grpc.unary_unary_rpc_method_handler(
-                    servicer.ReceiveResult,
-                    request_deserializer=taskgrid__pb2.ResultReturn.FromString,
+            'ReturnResult': grpc.unary_unary_rpc_method_handler(
+                    servicer.ReturnResult,
+                    request_deserializer=taskgrid__pb2.ResultRequest.FromString,
                     response_serializer=taskgrid__pb2.Ack.SerializeToString,
             ),
     }
@@ -127,10 +333,7 @@ def add_DispatcherServiceServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class DispatcherService(object):
-    """──────────────────────────────────────────────
-    DispatcherService  (Client → Dispatcher)
-    ──────────────────────────────────────────────
-
+    """DispatcherService — Client → Dispatcher + Worker → Dispatcher
     """
 
     @staticmethod
@@ -148,7 +351,7 @@ class DispatcherService(object):
             request,
             target,
             '/taskgrid.DispatcherService/PostTask',
-            taskgrid__pb2.TaskRequest.SerializeToString,
+            taskgrid__pb2.PostTaskRequest.SerializeToString,
             taskgrid__pb2.TaskResponse.FromString,
             options,
             channel_credentials,
@@ -175,7 +378,7 @@ class DispatcherService(object):
             request,
             target,
             '/taskgrid.DispatcherService/GetResult',
-            taskgrid__pb2.ResultRequest.SerializeToString,
+            taskgrid__pb2.GetResultRequest.SerializeToString,
             taskgrid__pb2.ResultResponse.FromString,
             options,
             channel_credentials,
@@ -215,7 +418,7 @@ class DispatcherService(object):
             _registered_method=True)
 
     @staticmethod
-    def ReceiveResult(request,
+    def ReturnResult(request,
             target,
             options=(),
             channel_credentials=None,
@@ -228,225 +431,8 @@ class DispatcherService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/taskgrid.DispatcherService/ReceiveResult',
-            taskgrid__pb2.ResultReturn.SerializeToString,
-            taskgrid__pb2.Ack.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-
-class NamensdienstServiceStub(object):
-    """──────────────────────────────────────────────
-    NamensdienstService  (Worker/Dispatcher → Namensdienst)
-    ──────────────────────────────────────────────
-
-    """
-
-    def __init__(self, channel):
-        """Constructor.
-
-        Args:
-            channel: A grpc.Channel.
-        """
-        self.RegisterWorker = channel.unary_unary(
-                '/taskgrid.NamensdienstService/RegisterWorker',
-                request_serializer=taskgrid__pb2.RegisterRequest.SerializeToString,
-                response_deserializer=taskgrid__pb2.Ack.FromString,
-                _registered_method=True)
-        self.Heartbeat = channel.unary_unary(
-                '/taskgrid.NamensdienstService/Heartbeat',
-                request_serializer=taskgrid__pb2.HeartbeatRequest.SerializeToString,
-                response_deserializer=taskgrid__pb2.Ack.FromString,
-                _registered_method=True)
-        self.LookupWorker = channel.unary_unary(
-                '/taskgrid.NamensdienstService/LookupWorker',
-                request_serializer=taskgrid__pb2.LookupRequest.SerializeToString,
-                response_deserializer=taskgrid__pb2.LookupResponse.FromString,
-                _registered_method=True)
-        self.DeregisterWorker = channel.unary_unary(
-                '/taskgrid.NamensdienstService/DeregisterWorker',
-                request_serializer=taskgrid__pb2.DeregisterRequest.SerializeToString,
-                response_deserializer=taskgrid__pb2.Ack.FromString,
-                _registered_method=True)
-
-
-class NamensdienstServiceServicer(object):
-    """──────────────────────────────────────────────
-    NamensdienstService  (Worker/Dispatcher → Namensdienst)
-    ──────────────────────────────────────────────
-
-    """
-
-    def RegisterWorker(self, request, context):
-        """REGISTER_WORKER: Worker meldet sich an
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def Heartbeat(self, request, context):
-        """HEARTBEAT: Worker sendet Lebenszeichen
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def LookupWorker(self, request, context):
-        """LOOKUP_WORKER: Dispatcher fragt passenden Worker für Tasktyp
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def DeregisterWorker(self, request, context):
-        """DEREGISTER_WORKER: Worker meldet sich beim Shutdown ab
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-
-def add_NamensdienstServiceServicer_to_server(servicer, server):
-    rpc_method_handlers = {
-            'RegisterWorker': grpc.unary_unary_rpc_method_handler(
-                    servicer.RegisterWorker,
-                    request_deserializer=taskgrid__pb2.RegisterRequest.FromString,
-                    response_serializer=taskgrid__pb2.Ack.SerializeToString,
-            ),
-            'Heartbeat': grpc.unary_unary_rpc_method_handler(
-                    servicer.Heartbeat,
-                    request_deserializer=taskgrid__pb2.HeartbeatRequest.FromString,
-                    response_serializer=taskgrid__pb2.Ack.SerializeToString,
-            ),
-            'LookupWorker': grpc.unary_unary_rpc_method_handler(
-                    servicer.LookupWorker,
-                    request_deserializer=taskgrid__pb2.LookupRequest.FromString,
-                    response_serializer=taskgrid__pb2.LookupResponse.SerializeToString,
-            ),
-            'DeregisterWorker': grpc.unary_unary_rpc_method_handler(
-                    servicer.DeregisterWorker,
-                    request_deserializer=taskgrid__pb2.DeregisterRequest.FromString,
-                    response_serializer=taskgrid__pb2.Ack.SerializeToString,
-            ),
-    }
-    generic_handler = grpc.method_handlers_generic_handler(
-            'taskgrid.NamensdienstService', rpc_method_handlers)
-    server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('taskgrid.NamensdienstService', rpc_method_handlers)
-
-
- # This class is part of an EXPERIMENTAL API.
-class NamensdienstService(object):
-    """──────────────────────────────────────────────
-    NamensdienstService  (Worker/Dispatcher → Namensdienst)
-    ──────────────────────────────────────────────
-
-    """
-
-    @staticmethod
-    def RegisterWorker(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/taskgrid.NamensdienstService/RegisterWorker',
-            taskgrid__pb2.RegisterRequest.SerializeToString,
-            taskgrid__pb2.Ack.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def Heartbeat(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/taskgrid.NamensdienstService/Heartbeat',
-            taskgrid__pb2.HeartbeatRequest.SerializeToString,
-            taskgrid__pb2.Ack.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def LookupWorker(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/taskgrid.NamensdienstService/LookupWorker',
-            taskgrid__pb2.LookupRequest.SerializeToString,
-            taskgrid__pb2.LookupResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def DeregisterWorker(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/taskgrid.NamensdienstService/DeregisterWorker',
-            taskgrid__pb2.DeregisterRequest.SerializeToString,
+            '/taskgrid.DispatcherService/ReturnResult',
+            taskgrid__pb2.ResultRequest.SerializeToString,
             taskgrid__pb2.Ack.FromString,
             options,
             channel_credentials,
@@ -460,10 +446,7 @@ class NamensdienstService(object):
 
 
 class WorkerServiceStub(object):
-    """──────────────────────────────────────────────
-    WorkerService  (Dispatcher → Worker)
-    ──────────────────────────────────────────────
-
+    """WorkerService (Elena-kompatibel) — implementiert von Worker
     """
 
     def __init__(self, channel):
@@ -472,23 +455,19 @@ class WorkerServiceStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.DispatchTask = channel.unary_unary(
-                '/taskgrid.WorkerService/DispatchTask',
-                request_serializer=taskgrid__pb2.DispatchRequest.SerializeToString,
-                response_deserializer=taskgrid__pb2.Ack.FromString,
+        self.ExecuteTask = channel.unary_unary(
+                '/taskgrid.WorkerService/ExecuteTask',
+                request_serializer=taskgrid__pb2.TaskRequest.SerializeToString,
+                response_deserializer=taskgrid__pb2.TaskResponse.FromString,
                 _registered_method=True)
 
 
 class WorkerServiceServicer(object):
-    """──────────────────────────────────────────────
-    WorkerService  (Dispatcher → Worker)
-    ──────────────────────────────────────────────
-
+    """WorkerService (Elena-kompatibel) — implementiert von Worker
     """
 
-    def DispatchTask(self, request, context):
-        """Dispatcher weist Worker einen Task zu
-        """
+    def ExecuteTask(self, request, context):
+        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -496,10 +475,10 @@ class WorkerServiceServicer(object):
 
 def add_WorkerServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'DispatchTask': grpc.unary_unary_rpc_method_handler(
-                    servicer.DispatchTask,
-                    request_deserializer=taskgrid__pb2.DispatchRequest.FromString,
-                    response_serializer=taskgrid__pb2.Ack.SerializeToString,
+            'ExecuteTask': grpc.unary_unary_rpc_method_handler(
+                    servicer.ExecuteTask,
+                    request_deserializer=taskgrid__pb2.TaskRequest.FromString,
+                    response_serializer=taskgrid__pb2.TaskResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -510,14 +489,11 @@ def add_WorkerServiceServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class WorkerService(object):
-    """──────────────────────────────────────────────
-    WorkerService  (Dispatcher → Worker)
-    ──────────────────────────────────────────────
-
+    """WorkerService (Elena-kompatibel) — implementiert von Worker
     """
 
     @staticmethod
-    def DispatchTask(request,
+    def ExecuteTask(request,
             target,
             options=(),
             channel_credentials=None,
@@ -530,9 +506,9 @@ class WorkerService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/taskgrid.WorkerService/DispatchTask',
-            taskgrid__pb2.DispatchRequest.SerializeToString,
-            taskgrid__pb2.Ack.FromString,
+            '/taskgrid.WorkerService/ExecuteTask',
+            taskgrid__pb2.TaskRequest.SerializeToString,
+            taskgrid__pb2.TaskResponse.FromString,
             options,
             channel_credentials,
             insecure,
