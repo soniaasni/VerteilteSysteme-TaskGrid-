@@ -7,11 +7,14 @@ Erlaubte Übergänge gemäß Aufgabenstellung §5:
   CREATED    → QUEUED
   QUEUED     → DISPATCHED | FAILED
   DISPATCHED → PROCESSING | TIMEOUT | FAILED
-  PROCESSING → COMPLETED  | FAILED
+  PROCESSING → COMPLETED  | FAILED  | TIMEOUT
   TIMEOUT    → RETRYING
   RETRYING   → DISPATCHED | FAILED
   COMPLETED  → (terminal)
   FAILED     → (terminal)
+
+PROCESSING → TIMEOUT: Timeout-Timer läuft nach Worker-Akzeptanz weiter.
+Trifft kein ReturnResult ein, wechselt der Task von PROCESSING in TIMEOUT.
 """
 
 import time
@@ -28,7 +31,7 @@ VALID_TRANSITIONS: dict[TaskState, set[TaskState]] = {
     TaskState.CREATED:    {TaskState.QUEUED},
     TaskState.QUEUED:     {TaskState.DISPATCHED, TaskState.FAILED},
     TaskState.DISPATCHED: {TaskState.PROCESSING, TaskState.TIMEOUT, TaskState.FAILED},
-    TaskState.PROCESSING: {TaskState.COMPLETED,  TaskState.FAILED},
+    TaskState.PROCESSING: {TaskState.COMPLETED,  TaskState.FAILED, TaskState.TIMEOUT},
     TaskState.TIMEOUT:    {TaskState.RETRYING},
     TaskState.RETRYING:   {TaskState.DISPATCHED,  TaskState.FAILED},
     TaskState.COMPLETED:  set(),   # terminal

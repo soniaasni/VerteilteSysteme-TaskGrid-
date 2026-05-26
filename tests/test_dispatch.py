@@ -166,9 +166,9 @@ def test_dispatch_starts_timeout_timer():
     time.sleep(0.5)
     loop.stop()
 
-    # Timer für COMPLETED/PROCESSING-Task wurde gecancelt (kein Eintrag mehr)
+    # Timer läuft weiter bis ReturnResult eintrifft — nicht bei Worker-Akzeptanz gecancelt
     with loop._timers_lock:
-        assert "t1" not in loop._timers
+        assert "t1" in loop._timers, "Timeout-Timer muss nach Akzeptanz noch laufen"
 
 
 def test_cancel_timeout_removes_timer():

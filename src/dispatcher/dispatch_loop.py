@@ -134,7 +134,7 @@ class DispatchLoop(threading.Thread):
 
         if success:
             # Worker hat Task akzeptiert → DISPATCHED → PROCESSING
-            self._cancel_timeout(task.task_id)
+            # Timeout-Timer läuft weiter bis ReturnResult eintrifft (Issue #18)
             try:
                 transition(task, TaskState.PROCESSING)
                 self._store.update(task)
@@ -147,7 +147,7 @@ class DispatchLoop(threading.Thread):
                           task_id=task.task_id, error=str(e))
         else:
             # Worker nicht erreichbar oder hat abgelehnt → DISPATCHED → FAILED
-            self._cancel_timeout(task.task_id)
+            self._cancel_timeout(task.task_id)  # kein Retry bei expliziter Ablehnung
             try:
                 transition(task, TaskState.FAILED)
                 self._store.update(task)
