@@ -2,90 +2,202 @@ version: "3.9"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # TaskGrid+ — docker-compose.yml
+# Issue #38 (soniaasni)
+#
 # Startet alle Pflichtkomponenten des Systems:
-#   namensdienst  — Service Discovery
+#   namensdienst  — Service Discovery (startet zuerst)
 #   dispatcher    — Aufgabenverwaltung + Zustandsmaschine
-#   worker        — Aufgabenverarbeitung (skalierbar per --scale worker=N)
-#   client        — Demo-Client (sendet Tasks, wartet auf Ergebnisse, beendet sich)
+#   worker-sum    — Worker für Typ "sum"   (skalierbar per --scale worker-sum=N)
+#   worker-reverse— Worker für Typ "reverse"
+#   worker-hash   — Worker für Typ "hash"
+#   worker-upper  — Worker für Typ "upper"
+#   worker-wait   — Worker für Typ "wait"
+#   client        — Demo-Client (One-Shot, beendet sich nach Demo)
 #
-# Skalierung Worker-Typ (Beispiel aus §11):
-#   docker compose up --scale worker=3
+# Skalierung einzelner Worker-Typen (§11):
+#   docker compose up --scale worker-sum=3
+#   docker compose up --scale worker-reverse=2 --scale worker-hash=2
 #
-# Konfiguration ausschließlich via Umgebungsvariablen (§11, keine statischen Adressen).
-# Volumes NUR für Logs — kein gemeinsames Volume zur Aufgaben-/Ergebnisübergabe (§8).
+# Startreihenfolge (depends_on + healthcheck):
+#   namensdienst → dispatcher → worker-* → client
+#
+# Health Checks: TCP-Port-Probe per Python (in python:3.11-slim verfügbar,
+# kein zusätzliches Tool nötig). Stellt sicher, dass depends_on wartet
+# bis der gRPC-Port tatsächlich erreichbar ist (nicht nur der Prozess gestartet).
+#
+# Konfiguration ausschließlich via Umgebungsvariablen (§11, §4.2).
+# Volumes NUR für Logs — KEIN gemeinsames Volume für Task-/Ergebnisübergabe (§8).
 # ──────────────────────────────────────────────────────────────────────────────
 
 services:
 
   # ── Namensdienst (Service Discovery) ────────────────────────────────────────
+  # Startet als erste Komponente — alle anderen hängen von ihm ab.
+  # Worker-Registrierungen nur im RAM (§4.1): bei Neustart leer, Worker
+  # re-registrieren sich automatisch beim eigenen Start (§4.3).
   namensdienst:
     build:
       context: ./nameservice
     container_name: namensdienst
     ports:
-      - "50052:50052"             # gRPC nach außen (für lokale Tests)
+      - "50052:50052"               # gRPC nach außen (lokale Tests, Monitoring)
     environment:
       - NAMENSDIENST_PORT=50052
+      - HEARTBEAT_TIMEOUT_SECONDS=15
+      - HEARTBEAT_CHECK_INTERVAL_SECONDS=5
     networks:
       - taskgrid
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import socket; s=socket.socket(); s.settimeout(2); s.connect(('localhost',50052)); s.close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
 
   # ── Dispatcher ───────────────────────────────────────────────────────────────
+  # Wartet auf gesunden Namensdienst (condition: service_healthy).
+  # Exponiert gRPC-Port 50051 (Client → Dispatcher) und HTTP-Port 8080
+  # (GET /status — Monitoring §4.5).
   dispatcher:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: dispatcher
     ports:
-      - "50051:50051"             # gRPC  (Client → Dispatcher)
-      - "8080:8080"               # HTTP  (GET /status — Monitoring §4.5)
+      - "50051:50051"               # gRPC  (Client → Dispatcher)
+      - "8080:8080"                 # HTTP  (GET /status — Monitoring §4.5)
     environment:
       - DISPATCHER_PORT=50051
       - STATUS_HTTP_PORT=8080
-      # Namensdienst-Adresse: ausschließlich über Env-Var (§4.2: kein statisches Hinterlegen)
+      # Namensdienst-Adresse: ausschließlich über Env-Var (§4.2)
       - NAMENSDIENST_HOST=namensdienst
       - NAMENSDIENST_PORT=50052
-      # Robustheit: Timeout und maximale Retry-Versuche (§7, Issue #18)
+      # Robustheit: Timeout und Retry-Versuche (§7, Issue #18)
       - DISPATCH_TIMEOUT_SECONDS=30
       - MAX_RETRIES=3
+      - DISPATCH_NO_WORKER_RETRY_SECONDS=2
       - LOG_DIR=/app/logs
     depends_on:
-      - namensdienst
+      namensdienst:
+        condition: service_healthy
     volumes:
-      - logs:/app/logs            # Logs persistieren (§8: nur für Logs erlaubt)
+      - logs:/app/logs              # Logs persistieren (§8: nur für Logs erlaubt)
     networks:
       - taskgrid
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import socket; s=socket.socket(); s.settimeout(2); s.connect(('localhost',50051)); s.close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
 
-  # ── Worker ───────────────────────────────────────────────────────────────────
-  # Skalierbar: docker compose up --scale worker=3
-  # Jede Instanz registriert sich eigenständig beim Namensdienst (§4.3).
-  # Env-Vars als vollständige Adressen — worker.py liest NAMING_SERVICE_ADDRESS
-  # und DISPATCHER_ADDRESS (nicht HOST/PORT einzeln).
-  worker:
+  # ── Worker-Typen ─────────────────────────────────────────────────────────────
+  # Jeder Service entspricht genau einem Aufgabentyp (WORKER_TYPE).
+  # Skalierbar per --scale (kein container_name → Docker vergibt eindeutige Namen).
+  # entrypoint.sh mappt WORKER_TYPE → TASK_TYPES, NAMENSDIENST_ADDRESS →
+  # NAMING_SERVICE_ADDRESS, generiert WORKER_ID=worker-<typ>-<hostname>.
+  #
+  # WORKER_HOST muss dem Docker-Compose-Service-Namen entsprechen, damit der
+  # Dispatcher die Worker über Docker DNS erreicht (§4.4 Hinweis).
+  # Bei --scale worker-sum=3 löst "worker-sum" per Round-Robin auf alle
+  # Instanzen auf — alle registrieren sich mit derselben Adresse (Docker DNS).
+
+  worker-sum:
     build:
       context: ./worker
     environment:
-      # Adresse des Namensdiensts (vollständige gRPC-Adresse)
-      - NAMING_SERVICE_ADDRESS=namensdienst:50052
-      # Adresse des Dispatchers für RESULT_RETURN (vollständige gRPC-Adresse)
-      - DISPATCHER_ADDRESS=dispatcher:50051
-      # Eigene Adresse: Docker-interner Service-Name (DNS-Auflösung durch Docker)
-      - WORKER_HOST=worker
+      - WORKER_TYPE=sum
+      - WORKER_HOST=worker-sum
       - WORKER_PORT=50051
-      # Unterstützte Task-Typen dieser Worker-Instanz (kommagetrennt)
-      # Alle 5 Pflicht-/Empfehlungstypen aktiviert (§3, Issue #29–#33)
-      - TASK_TYPES=reverse,sum,hash,upper,wait
-      # Heartbeat-Intervall in Sekunden (§4.4: regelmäßige Heartbeats)
-      - HEARTBEAT_INTERVAL=5
+      - NAMENSDIENST_ADDRESS=namensdienst:50052
+      - DISPATCHER_ADDRESS=dispatcher:50051
+      - HEARTBEAT_INTERVAL_SECONDS=5
     depends_on:
-      - namensdienst
-      - dispatcher
+      namensdienst:
+        condition: service_healthy
+      dispatcher:
+        condition: service_healthy
+    networks:
+      - taskgrid
+
+  worker-reverse:
+    build:
+      context: ./worker
+    environment:
+      - WORKER_TYPE=reverse
+      - WORKER_HOST=worker-reverse
+      - WORKER_PORT=50051
+      - NAMENSDIENST_ADDRESS=namensdienst:50052
+      - DISPATCHER_ADDRESS=dispatcher:50051
+      - HEARTBEAT_INTERVAL_SECONDS=5
+    depends_on:
+      namensdienst:
+        condition: service_healthy
+      dispatcher:
+        condition: service_healthy
+    networks:
+      - taskgrid
+
+  worker-hash:
+    build:
+      context: ./worker
+    environment:
+      - WORKER_TYPE=hash
+      - WORKER_HOST=worker-hash
+      - WORKER_PORT=50051
+      - NAMENSDIENST_ADDRESS=namensdienst:50052
+      - DISPATCHER_ADDRESS=dispatcher:50051
+      - HEARTBEAT_INTERVAL_SECONDS=5
+    depends_on:
+      namensdienst:
+        condition: service_healthy
+      dispatcher:
+        condition: service_healthy
+    networks:
+      - taskgrid
+
+  worker-upper:
+    build:
+      context: ./worker
+    environment:
+      - WORKER_TYPE=upper
+      - WORKER_HOST=worker-upper
+      - WORKER_PORT=50051
+      - NAMENSDIENST_ADDRESS=namensdienst:50052
+      - DISPATCHER_ADDRESS=dispatcher:50051
+      - HEARTBEAT_INTERVAL_SECONDS=5
+    depends_on:
+      namensdienst:
+        condition: service_healthy
+      dispatcher:
+        condition: service_healthy
+    networks:
+      - taskgrid
+
+  worker-wait:
+    build:
+      context: ./worker
+    environment:
+      - WORKER_TYPE=wait
+      - WORKER_HOST=worker-wait
+      - WORKER_PORT=50051
+      - NAMENSDIENST_ADDRESS=namensdienst:50052
+      - DISPATCHER_ADDRESS=dispatcher:50051
+      - HEARTBEAT_INTERVAL_SECONDS=5
+    depends_on:
+      namensdienst:
+        condition: service_healthy
+      dispatcher:
+        condition: service_healthy
     networks:
       - taskgrid
 
   # ── Client ───────────────────────────────────────────────────────────────────
   # Eigener Container gemäß §11 (Pflichtbestandteil).
-  # Demo-Modus (CLIENT_MODE=demo): sendet je einen Task aller Pflichttypen,
-  # wartet auf Ergebnisse und beendet sich (restart: "no").
+  # Demo-Modus: sendet je einen Task aller Pflichttypen, wartet auf Ergebnisse
+  # und beendet sich (restart: "no" → One-Shot-Container).
   #
   # Andere Modi via Umgebungsvariable:
   #   CLIENT_MODE=send   + TASK_TYPE=reverse + TASK_PAYLOAD="hello world"
@@ -100,26 +212,32 @@ services:
       - CLIENT_MODE=demo
       - POLL_INTERVAL_SECONDS=1.0
       - POLL_TIMEOUT_SECONDS=60.0
-      # Verbindungsaufbau: wartet bis Dispatcher bereit ist (Docker-Startup)
+      # Verbindungsaufbau: wartet bis Dispatcher tatsächlich bereit ist
       - CONNECT_RETRIES=20
       - CONNECT_RETRY_DELAY_SECONDS=3.0
       - LOG_DIR=/app/logs
     depends_on:
-      - dispatcher
+      dispatcher:
+        condition: service_healthy
     volumes:
       - logs:/app/logs
     networks:
       - taskgrid
-    restart: "no"               # Client ist ein One-Shot-Container (beendet sich nach Demo)
+    restart: "no"                   # One-Shot: beendet sich nach Demo
 
 # ── Volumes ───────────────────────────────────────────────────────────────────
-# Nur für Logs — KEIN gemeinsames Volume für Task-/Ergebnisübergabe (§8).
+# Erlaubte Volumes gemäß §8:
+#   logs — strukturierte Logs aller Komponenten (§13)
+# VERBOTEN: gemeinsames Volume für Task-/Ergebnisübergabe zwischen Komponenten.
+# Alle Task-Daten fließen ausschließlich über gRPC (§8).
 volumes:
   logs:
 
 # ── Netzwerk ──────────────────────────────────────────────────────────────────
 # Internes Bridge-Netzwerk: Komponenten kommunizieren per Service-Name.
-# Docker DNS löst z. B. "dispatcher" → Container-IP auf (§4.4 Hinweis).
+# Docker DNS löst z. B. "dispatcher" → Container-IP auf.
+# Nach außen exponiert: nur Dispatcher (50051, 8080) und Namensdienst (50052).
+# Worker-Ports bleiben intern (kein direkter Zugriff von außen nötig).
 networks:
   taskgrid:
     driver: bridge
