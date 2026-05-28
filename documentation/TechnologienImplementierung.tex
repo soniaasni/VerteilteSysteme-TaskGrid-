@@ -1,1 +1,364 @@
 \section{Technologien und Implementierung}
+\label{sec:technologien}
+
+\subsection{Technologiestack}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Technologie} & \textbf{Version} & \textbf{Verwendung} \\
+\midrule
+Python            & 3.11            & Alle Komponenten (Dispatcher, Worker, Client) \\
+gRPC / grpcio     & $\geq$ 1.80     & Kommunikationsprotokoll \\
+Protocol Buffers  & proto3          & Nachrichtenserialisierung \\
+Docker            & 24+             & Containerisierung aller Komponenten \\
+Docker Compose    & 2.x (v3.9)      & Orchestrierung des Gesamtsystems \\
+\bottomrule
+\end{tabular}
+\caption{Technologiestack TaskGrid+}
+\end{table}
+
+\textbf{Wichtiger Hinweis zur grpcio-Version}:
+Der generierte Proto-Code (\texttt{proto/taskgrid\_pb2\_grpc.py}) prüft
+\texttt{GRPC\_GENERATED\_VERSION = '1.80.0'} zur Laufzeit und
+wirft eine \texttt{RuntimeError} bei einer niedrigeren installierten Version.
+Daher ist in allen \texttt{requirements.txt}-Dateien \texttt{grpcio>=1.80}
+eingetragen (nicht nur \texttt{grpcio}).
+
+\subsection{Strukturiertes Logging (Issue \#19)}
+
+Alle Dispatcher-Log-Einträge folgen dem in §13 der Aufgabenstellung
+definierten Format.
+Das zentrale Logging-Modul \texttt{src/common/logger.py}
+stellt zwei Funktionen bereit:
+
+\begin{itemize}
+  \item \texttt{get\_logger(component)}: Gibt einen konfigurierten Logger zurück.
+        Gibt Logs gleichzeitig auf stdout (ohne Timestamp) und in eine Datei
+        (mit Timestamp, Pfad: \texttt{LOG\_DIR/<component>.log}) aus.
+  \item \texttt{log\_event(logger, level, event, request\_id, task\_id, **extra)}:
+        Erzeugt einen strukturierten Log-Eintrag im Format §13.
+\end{itemize}
+
+\textbf{Log-Format (Beispiele)}:
+
+\begin{lstlisting}[language={},caption={Strukturierte Log-Ausgaben (Issue \#19)}]
+[dispatcher] request_id=abc123 task_id=42 event=POST_TASK_accepted
+             status=QUEUED type=sum queue_size=1
+[dispatcher] request_id=abc123 task_id=42 event=DISPATCH_sending
+             status=DISPATCHED worker_id=worker-sum-a1b2c3
+[dispatcher] request_id=abc123 task_id=42 event=RESULT_RETURN_stored
+             status=COMPLETED duration_ms=37
+[dispatcher] task_id=42 event=DISPATCH_TIMEOUT_fired
+             worker_id=worker-sum-a1b2c3 retry_count=1
+[dispatcher] task_id=42 event=TIMEOUT_retrying
+             retry_count=1 max_retries=3
+\end{lstlisting}
+
+Pflichtbestandteil des Testprotokolls: alle Ereignisse werden
+mit \texttt{task\_id} und \texttt{request\_id} geloggt.
+
+\textbf{Implementierungsdetail}: Python-Logger propagieren Nachrichten
+standardmäßig die Hierarchie aufwärts.
+Da jeder Logger eigene Handler hat (\texttt{dispatcher.dispatch\_loop}
+$\rightarrow$ \texttt{dispatcher} $\rightarrow$ root), würde dies zu
+doppelten Log-Einträgen führen.
+Dies wurde durch \texttt{logger.propagate = False} in \texttt{get\_logger()} behoben.
+
+\subsection{Dispatcher -- gRPC-Schnittstelle (Issue \#13)}
+
+\texttt{PostTask} ist die primäre Eingangsschnittstelle des Dispatchers.
+Die Validierungslogik prüft drei Bedingungen:
+
+\begin{enumerate}
+  \item \texttt{task\_type} darf nicht leer sein.
+  \item \texttt{task\_type} muss $\leq$ 32 Zeichen lang sein.
+  \item \texttt{task\_payload} muss $\leq$ 1024 Zeichen lang sein.
+\end{enumerate}
+
+Bei Verstößen wird der gRPC-Statuscode \texttt{INVALID\_ARGUMENT} gesetzt.
+Valide Tasks erhalten eine neue \texttt{task\_id}, werden im
+\texttt{TaskStore} gespeichert und in die \texttt{TaskQueue} eingereiht.
+
+\subsection{Worker-Lookup (Issue \#14)}
+
+Der Dispatcher löst Worker-Adressen nie statisch auf.
+Stattdessen ruft \texttt{NamensdienstClient.lookup\_worker()} bei jedem
+Dispatch-Vorgang den Namensdienst ab.
+Ein Round-Robin-Selector wählt einen Worker aus der zurückgegebenen Liste.
+Bei leerer Liste wartet der Dispatcher \texttt{DISPATCH\_NO\_WORKER\_RETRY\_SECONDS}
+und re-enqueued den Task.
+
+\subsection{Ergebnis-Empfang (Issue \#16)}
+
+\texttt{ReturnResult} empfängt Ergebnisse von Workern.
+Drei Sonderfälle werden behandelt:
+
+\begin{enumerate}
+  \item \textbf{Unbekannte task\_id}: \texttt{Ack(success=False)} + Warning-Log.
+  \item \textbf{Bereits terminaler Task}: Task wird ignoriert (Idempotenz §5).
+        Dies verhindert Probleme bei verspäteten Ergebnissen nach Timeout.
+  \item \textbf{Ungültiger Zustandsübergang}: \texttt{InvalidTransitionError}
+        wird gefangen, Fehler wird geloggt.
+\end{enumerate}
+
+Bei erfolgreichem Empfang wird der Timeout-Timer sofort abgebrochen
+(\texttt{dispatch\_loop.cancel\_timeout(task\_id)}), bevor der
+Zustandsübergang ausgeführt wird.
+Die \texttt{duration\_ms} wird als Differenz zwischen
+\texttt{timestamp\_dispatched} und \texttt{timestamp\_completed} berechnet
+und im Log ausgegeben.
+
+\subsection{Ergebnis-Abfrage (Issue \#17)}
+
+\texttt{GetResult} gibt den aktuellen Zustand und -- falls vorhanden --
+das Ergebnis eines Tasks zurück.
+Für unbekannte \texttt{task\_id} wird gRPC-Code \texttt{NOT\_FOUND} gesetzt.
+
+\subsection{Monitoring-Schnittstelle (Issue \#20)}
+
+Der Dispatcher stellt zwei parallele Monitoring-Schnittstellen bereit:
+
+\begin{enumerate}
+  \item \textbf{gRPC \texttt{GetStatus}}: Gibt kompakten JSON-String zurück.
+  \item \textbf{HTTP GET /status} (Port 8080): Gibt formatiertes JSON zurück,
+        abrufbar mit \texttt{curl http://localhost:8080/status}.
+\end{enumerate}
+
+Der HTTP-Server läuft als Daemon-Thread (\texttt{HttpStatusServer}) neben
+dem gRPC-Server.
+Der \texttt{StatusCollector} aggregiert folgende Felder:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Feld} & \textbf{Bedeutung} \\
+\midrule
+\texttt{aktive\_worker}                       & Anzahl aktiver Worker (via LookupWorker) \\
+\texttt{unterstützte\_tasktypen}              & Alle bekannten Task-Typen \\
+\texttt{offene\_tasks}                        & Tasks im Zustand QUEUED \\
+\texttt{laufende\_tasks}                      & Tasks in DISPATCHED/PROCESSING/RETRYING \\
+\texttt{abgeschlossene\_tasks}                & Tasks in COMPLETED \\
+\texttt{fehlgeschlagene\_tasks}               & Tasks in FAILED/TIMEOUT \\
+\texttt{durchschnittliche\_bearbeitungszeit\_ms} & Ø Bearbeitungszeit aller COMPLETED-Tasks \\
+\texttt{anzahl\_timeouts}                     & Summe aller retry\_counts \\
+\texttt{anzahl\_retries}                      & Identisch mit anzahl\_timeouts \\
+\bottomrule
+\end{tabular}
+\caption{Monitoring-Felder (GET /status)}
+\end{table}
+
+\subsection{Timeout und Retry (Issue \#18)}
+
+Für jeden an einen Worker gesendeten Task startet der Dispatcher
+einen \texttt{threading.Timer}.
+Die Timeout-Dauer ist über \texttt{DISPATCH\_TIMEOUT\_SECONDS} konfigurierbar
+(default: 30\,Sekunden).
+
+Der Timer-Callback \texttt{\_on\_timeout()} führt folgende Schritte aus:
+
+\begin{enumerate}
+  \item Frischen Task-Zustand aus dem Store lesen.
+  \item Falls bereits terminal (COMPLETED/FAILED): Timer ignorieren
+        (verspätetes Feuern -- kann passieren wenn Ergebnis kurz vor
+        Timeout eintrifft).
+  \item Zustandsübergänge: DISPATCHED $\rightarrow$ TIMEOUT $\rightarrow$ RETRYING.
+  \item \texttt{retry\_count} inkrementieren.
+  \item Falls \texttt{retry\_count} $\geq$ \texttt{MAX\_RETRIES}:
+        RETRYING $\rightarrow$ FAILED (Task wird nicht erneut versucht).
+  \item Sonst: Task in Queue re-enqueuen (RETRYING $\rightarrow$ DISPATCHED
+        im nächsten Dispatch-Zyklus).
+\end{enumerate}
+
+\begin{lstlisting}[language=Python,caption={Timeout-Behandlung (dispatch\_loop.py)}]
+if fresh.retry_count >= self._max_retries:
+    transition(fresh, TaskState.FAILED)
+    log_event(logger, "error", "TIMEOUT_max_retries_exceeded",
+              task_id=task_id,
+              retry_count=fresh.retry_count,
+              max_retries=self._max_retries)
+else:
+    self._queue.enqueue(fresh)
+    log_event(logger, "info", "TIMEOUT_retrying",
+              task_id=task_id,
+              retry_count=fresh.retry_count)
+\end{lstlisting}
+
+Der Timer wird abgebrochen wenn:
+\begin{itemize}
+  \item Ein Ergebnis via \texttt{ReturnResult} eintrifft (Normalfall).
+  \item Der Worker die Task explizit ablehnt (ACK ok=False).
+\end{itemize}
+
+\subsection{Containerisierung (Phase 3, Issues \#34--\#38)}
+
+\subsubsection{Allgemeine Dockerfile-Prinzipien}
+
+Alle vier Dockerfiles folgen dem gleichen Aufbau:
+
+\begin{enumerate}
+  \item \textbf{Basis-Image}: \texttt{python:3.11-slim}
+        (kleines Image ohne unnötige System-Pakete).
+  \item \textbf{Layer-Cache}: \texttt{requirements.txt} wird zuerst kopiert
+        und installiert, bevor der Quelltext hinzukommt.
+        Dadurch wird \texttt{pip install} nur wiederholt wenn
+        \texttt{requirements.txt} sich geändert hat -- nicht bei jeder
+        Code-Änderung.
+  \item \textbf{PYTHONPATH=/app}: Ermöglicht absolute Imports
+        (\texttt{from proto import ...}) ohne Pfad-Manipulation.
+  \item \textbf{Umgebungsvariablen als Dokumentation}: Alle konfigurierbaren
+        Werte stehen mit ihren Defaults im Dockerfile.
+        Überschreibung erfolgt ausschließlich in docker-compose.yml.
+\end{enumerate}
+
+\subsubsection{Dispatcher Dockerfile (Issue \#35)}
+
+Build-Kontext: Root-Verzeichnis (benötigt \texttt{proto/} und \texttt{src/}).
+
+\begin{lstlisting}[language={},caption={Dispatcher Dockerfile (Auszug)}]
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY proto/ ./proto/
+COPY src/ ./src/
+ENV PYTHONPATH=/app
+ENV DISPATCHER_PORT=50051
+ENV STATUS_HTTP_PORT=8080
+ENV NAMENSDIENST_HOST=namensdienst
+ENV NAMENSDIENST_PORT=50052
+ENV DISPATCH_TIMEOUT_SECONDS=30
+ENV MAX_RETRIES=3
+EXPOSE 50051 8080
+CMD ["python", "src/dispatcher/server.py"]
+\end{lstlisting}
+
+Wichtig: Keine Worker-Adressen als Umgebungsvariablen
+(Aufgabenanforderung §4.2).
+
+\subsubsection{Client Dockerfile (Issue \#34)}
+
+Build-Kontext: Root-Verzeichnis (benötigt \texttt{proto/}, \texttt{src/},
+\texttt{client/}).
+
+\begin{lstlisting}[language={},caption={Client Dockerfile (Auszug)}]
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY proto/ ./proto/
+COPY src/ ./src/
+COPY client/ ./client/
+ENV DISPATCHER_ADDRESS=dispatcher:50051
+ENV CLIENT_MODE=demo
+CMD ["python", "client/client.py"]
+\end{lstlisting}
+
+\subsubsection{Worker Dockerfile (Issue \#36)}
+
+Build-Kontext: \texttt{./worker} (vollständig eigenständig,
+eigene Proto-Stubs in \texttt{worker/generated/}).
+
+\begin{lstlisting}[language={},caption={Worker Dockerfile (Auszug)}]
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY generated/ ./generated/
+COPY task_handlers/ ./task_handlers/
+COPY worker.py .
+COPY entrypoint.sh .
+RUN sed -i 's/\r//' entrypoint.sh && chmod +x entrypoint.sh
+ENV WORKER_TYPE=reverse,sum,hash,upper,wait
+ENV NAMENSDIENST_ADDRESS=namensdienst:50052
+ENV DISPATCHER_ADDRESS=dispatcher:50051
+EXPOSE 50051
+ENTRYPOINT ["./entrypoint.sh"]
+\end{lstlisting}
+
+Das \texttt{sed}-Kommando entfernt Windows-Zeilenenden (CRLF) aus dem
+Shell-Skript, da das Repo auf Windows entwickelt wurde und CRLF den
+Shebang im Linux-Container unlesbar macht.
+
+\textbf{entrypoint.sh -- ENV-VAR-Mapping}:
+Die Issue-Spezifikation und \texttt{worker.py} verwenden unterschiedliche
+Variablennamen. \texttt{entrypoint.sh} übersetzt:
+
+\begin{lstlisting}[language=bash,caption={entrypoint.sh -- ENV-VAR-Mapping}]
+export TASK_TYPES="${WORKER_TYPE:-${TASK_TYPES:-reverse}}"
+export NAMING_SERVICE_ADDRESS="${NAMENSDIENST_ADDRESS:-...}"
+export HEARTBEAT_INTERVAL="${HEARTBEAT_INTERVAL_SECONDS:-5}"
+if [ -z "${WORKER_ID}" ]; then
+    export WORKER_ID="worker-${TASK_TYPES}-$(hostname)"
+fi
+exec python worker.py
+\end{lstlisting}
+
+Die \texttt{WORKER\_ID}-Generierung via \texttt{hostname} stellt sicher,
+dass bei \texttt{--scale worker-sum=3} alle drei Instanzen
+unterschiedliche IDs erhalten.
+
+\subsubsection{Namensdienst Dockerfile (Issue \#37)}
+
+Build-Kontext: \texttt{./nameservice}.
+
+\begin{lstlisting}[language={},caption={Namensdienst Dockerfile (Auszug)}]
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY nameservice.py .
+ENV NAMENSDIENST_PORT=6000
+ENV HEARTBEAT_TIMEOUT_SECONDS=15
+ENV HEARTBEAT_CHECK_INTERVAL_SECONDS=5
+EXPOSE 6000
+CMD ["python", "nameservice.py"]
+\end{lstlisting}
+
+Der Standardport ist 6000 (gemäß Issue-Spezifikation).
+In docker-compose.yml wird er durch \texttt{NAMENSDIENST\_PORT=50052}
+überschrieben.
+
+\subsubsection{docker-compose.yml (Issue \#38)}
+
+Die zentrale Orchestrierungsdatei steuert das Gesamtsystem:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Merkmal} & \textbf{Umsetzung} & \textbf{Issue} \\
+\midrule
+Startreihenfolge    & \texttt{depends\_on: condition: service\_healthy} & \#38 \\
+Health Checks       & TCP-Port-Sonde via Python (kein Extra-Tool) & \#38 \\
+Typspezifische Worker & Separate Services \texttt{worker-sum} etc. & \#38 \\
+Skalierung          & \texttt{--scale worker-sum=N} (kein \texttt{container\_name}) & \#38 \\
+Volumes             & Nur \texttt{logs} (kein Task/Ergebnis-Volume) & §8 \\
+Netzwerk            & Internes Bridge-Netzwerk \texttt{taskgrid} & §11 \\
+One-Shot Client     & \texttt{restart: "no"} & §11 \\
+\bottomrule
+\end{tabular}
+\caption{docker-compose.yml -- Implementierte Anforderungen}
+\end{table}
+
+\textbf{Health Check -- Implementierungsdetail}:
+Da \texttt{python:3.11-slim} kein \texttt{netcat} oder \texttt{curl} enthält,
+wurde der Health Check als Python-Einzeiler umgesetzt:
+
+\begin{lstlisting}[language=yaml,caption={Health Check in docker-compose.yml}]
+healthcheck:
+  test: ["CMD", "python", "-c",
+         "import socket; s=socket.socket(); s.settimeout(2);
+          s.connect(('localhost',50051)); s.close()"]
+  interval: 5s
+  timeout: 3s
+  retries: 12
+  start_period: 10s
+\end{lstlisting}
+
+Der Health Check prüft ob der gRPC-Port tatsächlich eine TCP-Verbindung
+akzeptiert -- nicht nur ob der Python-Prozess gestartet ist.
+Dies stellt sicher, dass Worker erst starten wenn der Dispatcher
+wirklich bereit ist.

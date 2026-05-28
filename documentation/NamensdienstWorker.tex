@@ -1,1 +1,170 @@
 \section{Namensdienst und Worker-Management}
+\label{sec:namensdienst}
+
+\subsection{Service Discovery -- Konzept}
+
+In TaskGrid+ werden Worker-Adressen \textbf{nirgends statisch} konfiguriert.
+Der Dispatcher und der Client kennen zur Build-Zeit nur den Namensdienst.
+Welche Worker für welchen Task-Typ verfügbar sind, erfährt der Dispatcher
+ausschließlich durch Abfragen an den Namensdienst (\texttt{LookupWorker}).
+
+Dieses Prinzip ist in der Aufgabenstellung (§4.2) explizit gefordert
+und wurde in allen Dockerfiles und der docker-compose.yml durchgesetzt:
+Worker-Adressen erscheinen in keiner Konfigurationsdatei des Dispatchers.
+
+\subsection{Worker-Registrierung (§4.3)}
+
+Jeder Worker registriert sich beim Start beim Namensdienst
+mit einem \texttt{RegisterWorker}-Aufruf:
+
+\begin{lstlisting}[language=Python,caption={Worker-Registrierung (worker.py)}]
+stub.RegisterWorker(
+    taskgrid_pb2.WorkerInfo(
+        worker_id=WORKER_ID,
+        task_types=TASK_TYPES,
+        address=WORKER_HOST,
+        port=WORKER_PORT,
+        status="ACTIVE",
+        current_load=0,
+    )
+)
+\end{lstlisting}
+
+\begin{itemize}
+  \item \texttt{WORKER\_HOST} entspricht dem Docker-Compose-Service-Namen
+        (z.\,B. \texttt{worker-sum}).
+        Docker DNS löst diesen Namen zur Container-IP auf.
+  \item \texttt{TASK\_TYPES} ist eine kommagetrennte Liste der unterstützten
+        Task-Typen, die vom \texttt{entrypoint.sh} aus \texttt{WORKER\_TYPE}
+        übernommen wird.
+  \item \texttt{WORKER\_ID} wird pro Container-Instanz eindeutig generiert
+        (Format: \texttt{worker-<typ>-<hostname>}), sodass bei
+        \texttt{--scale worker-sum=3} alle drei Instanzen unterschiedliche IDs haben.
+\end{itemize}
+
+\subsection{Heartbeat-Mechanismus (§4.4)}
+
+Nach der Registrierung sendet jeder Worker in regelmäßigen Abständen
+Heartbeat-Nachrichten (\texttt{SendHeartbeat}) an den Namensdienst:
+
+\begin{lstlisting}[language=Python,caption={Heartbeat-Loop (worker.py)}]
+def send_heartbeat_loop():
+    while True:
+        stub.SendHeartbeat(
+            taskgrid_pb2.HeartbeatRequest(
+                worker_id=WORKER_ID,
+                timestamp=int(time.time()),
+                current_load=0,
+            )
+        )
+        time.sleep(HEARTBEAT_INTERVAL)
+\end{lstlisting}
+
+Das Intervall ist über \texttt{HEARTBEAT\_INTERVAL\_SECONDS} (docker-compose)
+konfigurierbar. Der Namensdienst erkennt ausgebliebene Heartbeats
+nach \texttt{HEARTBEAT\_TIMEOUT\_SECONDS=15} und entfernt den Worker
+aus seiner internen Liste.
+Folge: \texttt{LookupWorker} gibt ihn nicht mehr zurück,
+der Dispatcher sendet keine neuen Tasks an ihn.
+
+\subsection{Worker-Deregistrierung}
+
+Beim Beenden des Worker-Prozesses (Ctrl+C / SIGTERM) wird
+\texttt{DeregisterWorker} aufgerufen:
+
+\begin{lstlisting}[language=Python,caption={Graceful Shutdown (worker.py)}]
+def deregister_worker():
+    stub.DeregisterWorker(
+        taskgrid_pb2.WorkerInfo(
+            worker_id=WORKER_ID,
+            address=WORKER_HOST,
+            port=WORKER_PORT,
+            status="OFFLINE",
+            ...
+        )
+    )
+\end{lstlisting}
+
+Dies ermöglicht \textbf{Graceful Shutdown}: Der Worker meldet sich
+aktiv ab, anstatt auf das Heartbeat-Timeout zu warten.
+
+\subsection{Dispatcher-seitiger Namensdienst-Client}
+
+Der \texttt{NamensdienstClient} (in \texttt{src/dispatcher/namensdienst\_client.py})
+kapselt alle gRPC-Aufrufe an den Namensdienst.
+Die Verbindungsadresse wird ausschließlich aus Umgebungsvariablen gelesen:
+
+\begin{lstlisting}[language=Python,caption={NamensdienstClient-Konfiguration}]
+host = os.environ.get("NAMENSDIENST_HOST", "namensdienst")
+port = os.environ.get("NAMENSDIENST_PORT", "50052")
+self._target = f"{host}:{port}"
+\end{lstlisting}
+
+Die Methode \texttt{lookup\_worker(task\_type, request\_id)} ist defensiv implementiert:
+Bei einem gRPC-Fehler (Namensdienst nicht erreichbar, Timeout) wird
+keine Exception geworfen, sondern eine leere Liste zurückgegeben.
+Der Dispatcher behandelt dies wie "`kein Worker verfügbar"' und
+re-enqueued den Task nach \texttt{DISPATCH\_NO\_WORKER\_RETRY\_SECONDS} (default: 2\,s).
+
+\begin{lstlisting}[language=Python,caption={Fehlertolerante LookupWorker-Implementierung}]
+try:
+    response = self._stub.LookupWorker(
+        taskgrid_pb2.LookupRequest(task_type=task_type),
+        timeout=5.0,
+    )
+except grpc.RpcError as e:
+    log_event(logger, "error", "LOOKUP_WORKER_failed", ...)
+    return []   # kein Absturz -- Dispatcher wartet und versucht es erneut
+\end{lstlisting}
+
+\subsection{Worker-Auswahl per Round-Robin (Issue \#14)}
+
+Wenn \texttt{LookupWorker} mehrere Worker zurückgibt, wählt der Dispatcher
+einen davon mit dem \texttt{RoundRobinSelector} aus.
+Pro Task-Typ wird ein eigener Zähler geführt:
+
+\begin{lstlisting}[language=Python,caption={Round-Robin-Selektion (worker\_selector.py)}]
+class RoundRobinSelector:
+    def select(self, task_type: str,
+               workers: list[WorkerInfo]) -> Optional[WorkerInfo]:
+        if not workers:
+            return None
+        with self._lock:
+            idx = self._counters[task_type] % len(workers)
+            self._counters[task_type] += 1
+        return workers[idx]
+\end{lstlisting}
+
+Der Counter ist thread-sicher (Lock) und wird bei jedem Aufruf inkrementiert.
+Bei 3 Workern verteilen sich 6 aufeinanderfolgende Tasks gleichmäßig
+auf Worker 0, 1, 2, 0, 1, 2.
+
+\subsection{Worker-Speicherverhalten}
+
+Gemäß Aufgabenstellung (§4.1) speichert der Namensdienst alle
+Worker-Registrierungen \textbf{ausschließlich im Arbeitsspeicher}.
+Bei einem Container-Neustart ist die Registry leer.
+Worker erkennen dies nicht aktiv -- sie registrieren sich
+jedoch beim eigenen Start automatisch neu.
+
+Diese Entscheidung wurde bewusst getroffen:
+\begin{itemize}
+  \item Kein persistenter Speicher nötig (Vereinfachung).
+  \item Stale Worker-Einträge nach Crash werden durch Heartbeat-Timeout
+        automatisch entfernt.
+  \item Neue Worker registrieren sich selbst -- kein manuelles Eingreifen.
+\end{itemize}
+
+\subsection{Skalierung}
+
+Durch die Kombination aus Namensdienst und \texttt{--scale} lassen sich
+Worker-Typen unabhängig skalieren:
+
+\begin{lstlisting}[language=bash,caption={Skalierungsbeispiel}]
+docker compose up --scale worker-sum=3 --scale worker-reverse=2
+\end{lstlisting}
+
+Jede Instanz registriert sich mit einer eindeutigen \texttt{WORKER\_ID}
+(hostname-basiert) beim Namensdienst.
+\texttt{LookupWorker} gibt alle drei \texttt{worker-sum}-Instanzen zurück.
+Der Round-Robin-Selector verteilt Tasks gleichmäßig auf alle drei.

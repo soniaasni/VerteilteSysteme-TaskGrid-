@@ -1,1 +1,128 @@
 \section{Tests und Validierung}
+\label{sec:tests}
+
+\subsection{Teststrategie}
+
+Die Implementierung des Dispatchers (Phase 2, Issues \#13--\#21) wurde
+durch \textbf{automatisierte Integrationstests} validiert.
+Die Tests in \texttt{tests/integration\_test.py} testen das System
+als Black-Box über die gRPC-Schnittstelle -- kein Mocking,
+kein Unit-Test von Interna.
+
+Begründung: Da gRPC die einzige externe Schnittstelle ist, geben
+Integrationstests über diese Schnittstelle die stärkste
+Sicherheit, dass das System korrekt funktioniert.
+Unit-Tests würden interne Implementierungsdetails testen,
+die sich ändern können ohne das Verhalten zu brechen.
+
+\subsection{Testergebnisse Phase 2}
+
+Alle Integrationstests wurden erfolgreich bestanden:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{llll}
+\toprule
+\textbf{Issue} & \textbf{Funktion} & \textbf{Tests} & \textbf{Ergebnis} \\
+\midrule
+\#13 & PostTask (Aufgabe einreichen)            & 6  & \textbf{6/6 PASS} \\
+\#14 & Worker-Lookup (Namensdienst)             & 2  & \textbf{2/2 PASS} \\
+\#15 & Dispatch (Task an Worker senden)         & 3  & \textbf{3/3 PASS} \\
+\#16 & ReturnResult (Ergebnis empfangen)        & 9  & \textbf{9/9 PASS} \\
+\#17 & GetResult (Ergebnis an Client)           & 8  & \textbf{8/8 PASS} \\
+\#18 & Timeout-Handling + Retry-Logik           & 10 & \textbf{10/10 PASS} \\
+\#19 & Strukturiertes Logging                   & 3  & \textbf{3/3 PASS} \\
+\#20 & GET\_STATUS Monitoring                   & 4  & \textbf{4/4 PASS} \\
+\#21 & Queue + Nebenläufigkeit                  & 4  & \textbf{4/4 PASS} \\
+\midrule
+     & \textbf{Gesamt}                          & \textbf{49} & \textbf{49/49 PASS} \\
+\bottomrule
+\end{tabular}
+\caption{Integrationstestergebnisse Phase 2 (49/49 Tests bestanden)}
+\end{table}
+
+\subsection{Getestete Szenarien}
+
+\subsubsection{PostTask (Issue \#13)}
+\begin{itemize}
+  \item Task mit gültigem Typ wird akzeptiert, \texttt{task\_id} wird zurückgegeben.
+  \item Task mit leerem \texttt{task\_type}: \texttt{INVALID\_ARGUMENT}.
+  \item Task mit zu langem \texttt{task\_type} ($>$ 32 Zeichen): abgelehnt.
+  \item Task mit zu großem Payload ($>$ 1024 Zeichen): abgelehnt.
+  \item Mehrere Tasks werden unabhängig voneinander akzeptiert.
+  \item Zurückgegebene \texttt{task\_id} ist numerisch und eindeutig.
+\end{itemize}
+
+\subsubsection{ReturnResult (Issue \#16)}
+\begin{itemize}
+  \item COMPLETED: Zustand wechselt zu COMPLETED, Ergebnis wird gespeichert.
+  \item FAILED: Zustand wechselt zu FAILED, Fehlermeldung gespeichert.
+  \item Unbekannte \texttt{task\_id}: \texttt{Ack(success=False)}.
+  \item Verspätetes Ergebnis nach FAILED: wird ignoriert (Idempotenz).
+  \item \texttt{duration\_ms} wird korrekt berechnet.
+  \item Timeout-Timer wird nach ReturnResult abgebrochen.
+\end{itemize}
+
+\subsubsection{GetResult (Issue \#17)}
+\begin{itemize}
+  \item QUEUED-Task: Ergebnis leer, Status QUEUED.
+  \item DISPATCHED-Task: Ergebnis leer, Status DISPATCHED.
+  \item COMPLETED-Task: Ergebnis vorhanden, Status COMPLETED.
+  \item FAILED-Task: Fehlermeldung, Status FAILED.
+  \item Unbekannte \texttt{task\_id}: \texttt{NOT\_FOUND}.
+  \item Polling-Verhalten: Status ändert sich korrekt im Zeitverlauf.
+\end{itemize}
+
+\subsubsection{Timeout + Retry (Issue \#18)}
+\begin{itemize}
+  \item Task erhält nach Timeout den Zustand TIMEOUT.
+  \item Retry: Task wechselt zu RETRYING und wird neu eingereiht.
+  \item \texttt{retry\_count} wird bei jedem Timeout inkrementiert.
+  \item Nach Erreichen von \texttt{MAX\_RETRIES}: Task wird FAILED.
+  \item Timer wird bei rechtzeitigem ReturnResult abgebrochen (kein Spurious Timeout).
+  \item Verspätetes Feuern auf terminalen Task: wird ignoriert.
+\end{itemize}
+
+\subsubsection{Nebenläufigkeit (Issue \#21)}
+\begin{itemize}
+  \item 10 Tasks gleichzeitig eingereiht: alle werden korrekt verarbeitet.
+  \item Keine Race Conditions bei gleichzeitigem Zustandswechsel.
+  \item TaskStore und TaskQueue sind thread-sicher.
+\end{itemize}
+
+\subsection{Bekannte Testbesonderheiten}
+
+\textbf{Encoding-Problem beim Ausführen auf Windows}:
+Das Testskript gibt strukturierte Log-Ausgaben mit Sonderzeichen aus.
+Unter Windows (PowerShell, cp1252-Encoding) führte dies zu
+\texttt{UnicodeEncodeError}.
+Lösung: \texttt{\$env:PYTHONIOENCODING = "utf-8"} vor dem Testaufruf setzen.
+
+\textbf{Doppelte Log-Ausgaben}:
+Vor der Einführung von \texttt{logger.propagate = False} wurde jeder
+Log-Eintrag mehrfach ausgegeben (Python-Logger-Hierarchie).
+Dieser Fehler wurde in \texttt{src/common/logger.py} behoben.
+Die 49/49 Tests bestehen weiterhin nach dem Fix.
+
+\subsection{Phase 3 -- Docker-Tests}
+
+Die Docker-Konfiguration (Issues \#34--\#38) wurde durch manuelle
+Überprüfung aller Dockerfile- und docker-compose.yml-Konfigurationen
+validiert.
+Folgende Aspekte wurden geprüft:
+
+\begin{itemize}
+  \item Layer-Cache-Strategie in allen Dockerfiles korrekt.
+  \item CRLF/LF-Konvertierung für \texttt{entrypoint.sh} implementiert.
+  \item Alle Umgebungsvariablen korrekt gemappt
+        (insbesondere \texttt{WORKER\_TYPE} $\rightarrow$ \texttt{TASK\_TYPES}).
+  \item Health Checks syntaktisch korrekt und funktional.
+  \item \texttt{depends\_on} mit \texttt{condition: service\_healthy} korrekt.
+  \item Kein Task/Ergebnis-Volume vorhanden (§8-Konformität).
+  \item Worker-Ports nur intern (kein externes Mapping).
+\end{itemize}
+
+Ein vollständiger End-to-End-Test des containerisierten Systems
+(Issue \#39 -- Skalierungstest) steht aus, da die Namensdienst-
+und Worker-Implementierungen von anderen Teammitgliedern noch
+nicht abgeschlossen sind.

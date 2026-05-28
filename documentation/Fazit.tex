@@ -1,1 +1,53 @@
 \section{Fazit}
+
+\subsection{Zusammenfassung}
+
+Im Rahmen dieses Projekts wurde ein vollständig funktionsfähiger
+\textbf{Dispatcher} für das verteilte Task-Processing-System TaskGrid+
+entwickelt und containerisiert.
+
+Die folgenden Kernkomponenten wurden implementiert:
+
+\begin{itemize}
+  \item \textbf{Zustandsmaschine} mit 8 Zuständen und vollständiger
+        \texttt{InvalidTransitionError}-Absicherung.
+  \item \textbf{Dispatch-Loop} als Background-Thread mit ThreadPoolExecutor
+        für parallele Verarbeitung.
+  \item \textbf{Timeout- und Retry-Mechanismus} mit konfigurierbaren
+        Parametern und vollständiger Zustandsübergang-Unterstützung.
+  \item \textbf{Namensdienst-Integration}: dynamische Worker-Adressauflösung,
+        keine statisch hinterlegten Adressen.
+  \item \textbf{Round-Robin Worker-Selektion} für gleichmäßige Lastverteilung.
+  \item \textbf{Strukturiertes Logging} gemäß §13 der Aufgabenstellung.
+  \item \textbf{HTTP Monitoring-Endpoint} (GET /status, Port 8080).
+  \item \textbf{Thread-sichere Datenhaltung} (TaskStore, TaskQueue).
+  \item \textbf{Vollständige Containerisierung}: vier Dockerfiles,
+        docker-compose.yml mit Health Checks und Skalierungsunterstützung.
+\end{itemize}
+
+\subsection{Ergebnisse}
+
+\textbf{Phase 2 (Dispatcher)}: 49/49 Integrationstests bestanden. \\
+\textbf{Phase 3 (Docker)}: Alle Dockerfiles und docker-compose.yml
+vollständig implementiert und dokumentiert.
+
+\subsection{Offene Punkte}
+
+\begin{itemize}
+  \item \textbf{Issue \#39 (Skalierungstest)}: Kann erst durchgeführt
+        werden wenn der Namensdienst als vollständiger gRPC-Server
+        implementiert ist (Teammitglied Xplosy) und die Worker-Task-Handler
+        fertiggestellt sind (Elena7x).
+  \item \textbf{End-to-End-Test im Container}: Ist nach Fertigstellung
+        der anderen Komponenten geplant.
+\end{itemize}
+
+\subsection{Ausblick}
+
+Nach Fertigstellung aller Komponenten kann das System als Ganzes
+mit \texttt{docker compose up} gestartet werden.
+Der Demo-Client sendet automatisch Tasks aller Pflichttypen,
+die über Worker verarbeitet und zurückgeliefert werden.
+Die Skalierung einzelner Worker-Typen (\texttt{--scale worker-sum=3})
+ist durch das \texttt{entrypoint.sh}-basierte
+\texttt{WORKER\_ID}-Generierungsschema vollständig vorbereitet.
