@@ -1,1 +1,197 @@
 \section{Kommunikation und Schnittstellen}
+\label{sec:kommunikation}
+
+\subsection{Kommunikationsprotokoll}
+
+Alle Kommunikation zwischen den Komponenten von TaskGrid+ erfolgt
+ausschließlich über \textbf{gRPC} (Google Remote Procedure Call)
+mit \textbf{Protocol Buffers (Protobuf)} als Serialisierungsformat.
+gRPC wurde aus folgenden Gründen gewählt:
+
+\begin{itemize}
+  \item Effiziente binäre Serialisierung: deutlich kompakter als JSON/REST.
+  \item Strenge Typisierung durch das \texttt{.proto}-Schema: verhindert
+        Schnittstellenfehler zur Laufzeit.
+  \item Bidirektionale Kommunikation möglich (hier nicht genutzt, aber vorbereitet).
+  \item Sprachunabhängigkeit: Client, Dispatcher, Worker und Namensdienst
+        können in verschiedenen Sprachen implementiert sein.
+\end{itemize}
+
+Die Schnittstellendefinition liegt in \texttt{proto/taskgrid.proto}.
+
+\subsection{Protobuf-Nachrichten}
+
+\subsubsection{Task-Nachrichten (Dispatcher $\leftrightarrow$ Worker)}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Nachricht} & \textbf{Feld} & \textbf{Bedeutung} \\
+\midrule
+\multirow{4}{*}{\texttt{TaskRequest}} & \texttt{request\_id: string} & Korrelations-ID des Aufrufs \\
+ & \texttt{task\_id: int32}    & Eindeutige Task-Nummer \\
+ & \texttt{task\_type: string} & Aufgabentyp (z.\,B. \texttt{sum}) \\
+ & \texttt{task\_payload: string} & Eingabedaten \\
+\midrule
+\multirow{4}{*}{\texttt{TaskResponse}} & \texttt{status: string} & Akzeptiert/Abgelehnt \\
+ & \texttt{task\_id: int32}     & Gespiegelte Task-ID \\
+ & \texttt{worker\_id: string}  & Bearbeitender Worker \\
+ & \texttt{error: string}       & Fehlermeldung (falls vorhanden) \\
+\bottomrule
+\end{tabular}
+\caption{Task-Nachrichten zwischen Dispatcher und Worker}
+\end{table}
+
+\subsubsection{Ergebnis-Rückmeldung (Worker $\rightarrow$ Dispatcher)}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Nachricht} & \textbf{Feld} & \textbf{Bedeutung} \\
+\midrule
+\multirow{6}{*}{\texttt{ResultRequest}} & \texttt{request\_id: string} & Korrelations-ID \\
+ & \texttt{task\_id: int32}    & Task-Referenz \\
+ & \texttt{worker\_id: string} & Meldender Worker \\
+ & \texttt{status: string}     & \texttt{"COMPLETED"} oder \texttt{"FAILED"} \\
+ & \texttt{result: string}     & Berechnetes Ergebnis \\
+ & \texttt{error: string}      & Fehlerbeschreibung (bei FAILED) \\
+\midrule
+\multirow{2}{*}{\texttt{Ack}} & \texttt{success: bool} & Quittierung \\
+ & \texttt{message: string}    & Optionale Nachricht \\
+\bottomrule
+\end{tabular}
+\caption{Ergebnis-Rückmeldung Worker an Dispatcher (ReturnResult)}
+\end{table}
+
+\subsubsection{Client-Schnittstelle (Client $\rightarrow$ Dispatcher)}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Nachricht} & \textbf{Feld} & \textbf{Bedeutung} \\
+\midrule
+\multirow{4}{*}{\texttt{PostTaskRequest}} & \texttt{request\_id: string} & Korrelations-ID \\
+ & \texttt{task\_type: string}  & Aufgabentyp \\
+ & \texttt{task\_payload: string} & Eingabedaten \\
+ & \texttt{sender: string}      & Client-Identifikation \\
+\midrule
+\multirow{3}{*}{\texttt{GetResultRequest}} & \texttt{request\_id: string} & Korrelations-ID \\
+ & \texttt{task\_id: int32}     & Abgefragte Task-ID \\
+ & \texttt{sender: string}      & Client-Identifikation \\
+\midrule
+\multirow{3}{*}{\texttt{ResultResponse}} & \texttt{task\_id: int32} & Task-Referenz \\
+ & \texttt{status: string}     & Aktueller Zustand \\
+ & \texttt{result: string}     & Berechnetes Ergebnis \\
+\bottomrule
+\end{tabular}
+\caption{Client-Schnittstelle des Dispatchers}
+\end{table}
+
+\subsubsection{Namensdienst-Nachrichten}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Nachricht} & \textbf{Feld} & \textbf{Bedeutung} \\
+\midrule
+\multirow{6}{*}{\texttt{WorkerInfo}} & \texttt{worker\_id: string} & Eindeutige Worker-ID \\
+ & \texttt{task\_types: string[]} & Unterstützte Typen \\
+ & \texttt{address: string}       & Erreichbare Adresse \\
+ & \texttt{port: int32}           & gRPC-Port \\
+ & \texttt{status: string}        & \texttt{ACTIVE}, \texttt{OFFLINE} etc. \\
+ & \texttt{current\_load: int32}  & Aktuelle Auslastung \\
+\midrule
+\multirow{3}{*}{\texttt{HeartbeatRequest}} & \texttt{worker\_id: string} & Sendender Worker \\
+ & \texttt{timestamp: int64} & Unix-Timestamp \\
+ & \texttt{current\_load: int32} & Aktuelle Auslastung \\
+\midrule
+\texttt{LookupRequest} & \texttt{task\_type: string} & Gesuchter Typ \\
+\midrule
+\multirow{2}{*}{\texttt{LookupResponse}} & \texttt{found: bool} & Wurden Worker gefunden? \\
+ & \texttt{workers: WorkerInfo[]} & Liste aktiver Worker \\
+\bottomrule
+\end{tabular}
+\caption{Namensdienst-Nachrichten}
+\end{table}
+
+\subsection{gRPC-Dienste}
+
+Das System definiert drei gRPC-Services in \texttt{proto/taskgrid.proto}:
+
+\subsubsection{NamingService}
+
+Der Namensdienst implementiert \texttt{NamingService}.
+Worker rufen die vier Methoden direkt auf:
+
+\begin{lstlisting}[language={},caption={NamingService in taskgrid.proto}]
+service NamingService {
+  rpc RegisterWorker   (WorkerInfo)       returns (Ack);
+  rpc SendHeartbeat    (HeartbeatRequest) returns (Ack);
+  rpc DeregisterWorker (WorkerInfo)       returns (Ack);
+  rpc LookupWorker     (LookupRequest)    returns (LookupResponse);
+}
+\end{lstlisting}
+
+\subsubsection{DispatcherService}
+
+Der Dispatcher implementiert \texttt{DispatcherService}.
+Clients und Worker kommunizieren hierüber:
+
+\begin{lstlisting}[language={},caption={DispatcherService in taskgrid.proto}]
+service DispatcherService {
+  rpc PostTask     (PostTaskRequest)  returns (TaskResponse);
+  rpc GetResult    (GetResultRequest) returns (ResultResponse);
+  rpc GetStatus    (StatusRequest)    returns (StatusResponse);
+  rpc ReturnResult (ResultRequest)    returns (Ack);
+}
+\end{lstlisting}
+
+\subsubsection{WorkerService}
+
+Jeder Worker implementiert \texttt{WorkerService}.
+Der Dispatcher ruft \texttt{ExecuteTask} auf:
+
+\begin{lstlisting}[language={},caption={WorkerService in taskgrid.proto}]
+service WorkerService {
+  rpc ExecuteTask (TaskRequest) returns (TaskResponse);
+}
+\end{lstlisting}
+
+\subsection{Kommunikationsfluss}
+
+Der vollständige Fluss für eine erfolgreiche Task-Verarbeitung:
+
+\begin{enumerate}
+  \item \textbf{Client $\rightarrow$ Dispatcher} \texttt{PostTask}: \\
+        Client sendet Task-Typ und Payload. Dispatcher gibt \texttt{task\_id} zurück.
+  \item \textbf{Dispatcher $\rightarrow$ Namensdienst} \texttt{LookupWorker}: \\
+        Dispatcher fragt nach aktiven Workern für den Task-Typ.
+  \item \textbf{Dispatcher $\rightarrow$ Worker} \texttt{ExecuteTask}: \\
+        Dispatcher sendet Task an ausgewählten Worker per Round-Robin.
+  \item \textbf{Worker $\rightarrow$ Dispatcher} \texttt{ReturnResult}: \\
+        Worker sendet Ergebnis zurück (COMPLETED oder FAILED).
+  \item \textbf{Client $\rightarrow$ Dispatcher} \texttt{GetResult}: \\
+        Client pollt Ergebnis per \texttt{task\_id}.
+        Dispatcher gibt aktuellen Zustand und Ergebnis zurück.
+\end{enumerate}
+
+\subsection{Besonderheiten der Proto-Kompatibilität}
+
+Da der Dispatcher und der Worker von verschiedenen Teammitgliedern
+implementiert wurden, mussten folgende Proto-Konventionen des Workers
+(Elena7x) übernommen werden:
+
+\begin{itemize}
+  \item \texttt{task\_id} als \texttt{int32} in allen Nachrichten
+        (intern im Dispatcher als \texttt{string} gespeichert, Konvertierung
+        an der gRPC-Grenze).
+  \item Ergebnis-Rückmeldung heißt \texttt{ReturnResult} (nicht \texttt{ReceiveResult}).
+  \item Ergebnis-Status als \texttt{string} (\texttt{"COMPLETED"}/\texttt{"FAILED"})
+        statt als Boolean.
+  \item Fehlerfeld heißt \texttt{error} (nicht \texttt{error\_msg}).
+  \item Quittierungs-Flag heißt \texttt{Ack.success} (nicht \texttt{Ack.ok}).
+\end{itemize}

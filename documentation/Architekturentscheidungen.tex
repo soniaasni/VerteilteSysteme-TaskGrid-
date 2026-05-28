@@ -1,1 +1,231 @@
 \section{Architekturentscheidungen}
+\label{sec:adr}
+
+Architekturentscheidungen (Architecture Decision Records, ADRs)
+dokumentieren technische Entscheidungen mit Begründung und
+bewerteten Alternativen.
+Diese Dokumentation ist Prüfungsbestandteil (15-Punkte-Kriterium).
+
+\subsection{ADR-003: Worker-Auswahlstrategie -- Round-Robin}
+
+\textbf{Status}: Akzeptiert \\
+\textbf{Betrifft}: \texttt{src/dispatcher/worker\_selector.py} (Issue \#14, \#15)
+
+\subsubsection*{Kontext}
+
+Wenn der Namensdienst mehrere Worker für einen Task-Typ zurückgibt,
+muss der Dispatcher einen davon auswählen.
+Die Aufgabenstellung verbietet, dauerhaft denselben Worker zu wählen.
+Es wird eine Strategie benötigt die einfach, korrekt und skalierbar ist.
+
+\subsubsection*{Entscheidung}
+
+\textbf{Round-Robin}: Pro Task-Typ wird ein Zähler geführt.
+Bei $n$ verfügbaren Workern wird Worker mit Index $\text{Zähler} \bmod n$
+gewählt, dann der Zähler inkrementiert.
+
+\begin{lstlisting}[language=Python,caption={Round-Robin-Implementierung}]
+with self._lock:
+    idx = self._counters[task_type] % len(workers)
+    self._counters[task_type] += 1
+return workers[idx]
+\end{lstlisting}
+
+\subsubsection*{Bewertete Alternativen}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lp{5cm}p{5cm}}
+\toprule
+\textbf{Strategie} & \textbf{Vorteile} & \textbf{Nachteile} \\
+\midrule
+\textbf{Round-Robin} (gewählt) &
+  Einfach, deterministisch, gleichmäßige Last, kein globaler Zustand außer Index &
+  Ignoriert aktuelle Auslastung der Worker \\
+\midrule
+Random-Auswahl &
+  Keine Synchronisation nötig &
+  Kann zufällig denselben Worker mehrfach wählen; nicht deterministisch für Tests \\
+\midrule
+Least-Load &
+  Wählt immer den am wenigsten ausgelasteten Worker &
+  Benötigt aktuelle Auslastungsdaten; Namensdienst muss diese liefern;
+  Race Condition wenn mehrere Dispatcher-Threads gleichzeitig wählen \\
+\midrule
+Consistent Hashing &
+  Gleiche Tasks gehen immer zum gleichen Worker (Cache-freundlich) &
+  Aufwändig; unnötig für zustandslose Worker \\
+\bottomrule
+\end{tabular}
+\caption{ADR-003: Bewertete Alternativen für Worker-Auswahl}
+\end{table}
+
+\subsubsection*{Begründung}
+
+Round-Robin wurde gewählt, weil:
+\begin{itemize}
+  \item Die Aufgabenstellung explizit eine Verteilungsstrategie fordert
+        (kein immer-derselbe-Worker).
+  \item Die Implementierung minimal ist (ein Zähler-Dictionary, ein Lock).
+  \item Das Ergebnis bei Tests deterministisch und nachvollziehbar ist.
+  \item Die Worker in diesem System zustandslos sind -- Least-Load
+        brächte keinen nennenswerten Vorteil, da jeder Task unabhängig
+        verarbeitet wird.
+\end{itemize}
+
+\subsubsection*{Konsequenzen}
+
+Positiv: Einfache Implementierung, keine zyklische Abhängigkeit zwischen
+Dispatcher und Auslastungsdaten der Worker.
+Negativ: Bei stark unterschiedlicher Task-Dauer kann ein Worker überlastet
+werden während andere idle sind. In diesem System ist das akzeptabel,
+da die Aufgaben (reverse, sum, hash, upper, wait) ähnliche Laufzeiten haben.
+
+\subsection{ADR-005: Timeout-Behandlung und Retry-Strategie}
+
+\textbf{Status}: Akzeptiert \\
+\textbf{Betrifft}: \texttt{src/dispatcher/dispatch\_loop.py} (Issue \#18)
+
+\subsubsection*{Kontext}
+
+Ein Task kann nach dem Versenden an einen Worker nicht zurückkommen, wenn:
+\begin{itemize}
+  \item Der Worker-Prozess abstürzt oder hängt.
+  \item Der Netzwerkpfad zum Worker unterbrochen ist.
+  \item Die Verarbeitungszeit das konfigurierte Timeout überschreitet.
+\end{itemize}
+
+Der Dispatcher muss erkennen, wenn kein Ergebnis eintrifft, und
+angemessen reagieren. Die Aufgabenstellung fordert eine Dokumentation
+der gewählten Strategie.
+
+\subsubsection*{Entscheidung}
+
+\textbf{Timer-basiertes Timeout mit konfigurierbarem Re-Enqueue + Max-Retries}:
+
+\begin{enumerate}
+  \item Beim Versenden eines Tasks an einen Worker startet ein
+        \texttt{threading.Timer} mit \texttt{DISPATCH\_TIMEOUT\_SECONDS}.
+  \item Feuert der Timer (kein Ergebnis eingegangen):
+        DISPATCHED $\rightarrow$ TIMEOUT $\rightarrow$ RETRYING,
+        \texttt{retry\_count++}.
+  \item Falls \texttt{retry\_count} $<$ \texttt{MAX\_RETRIES}:
+        Task wird erneut in die Queue eingereiht (RETRYING).
+  \item Falls \texttt{retry\_count} $\geq$ \texttt{MAX\_RETRIES}:
+        RETRYING $\rightarrow$ FAILED (endgültig).
+  \item Trifft ein Ergebnis vor dem Timeout ein: Timer wird sofort
+        abgebrochen.
+  \item Verspätetes Feuern auf terminalen Task: wird ignoriert.
+\end{enumerate}
+
+\subsubsection*{Bewertete Alternativen}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lp{4.5cm}p{4.5cm}}
+\toprule
+\textbf{Strategie} & \textbf{Vorteile} & \textbf{Nachteile} \\
+\midrule
+\textbf{Timer + Re-Enqueue} (gewählt) &
+  Saubere Zustandsübergänge; konfigurierbares Max-Retry;
+  Timer-Abbruch bei rechtzeitigem Ergebnis &
+  Mehrere Threads (Timer-Threads); Race Condition möglich
+  wenn Ergebnis und Timeout gleichzeitig eintreffen
+  (durch is\_terminal()-Check behoben) \\
+\midrule
+Sofortiges FAILED &
+  Einfach; kein Retry-Zustand nötig &
+  Kein Retry bei transientem Fehler; schlechte Robustheit \\
+\midrule
+Weitersenden an anderen Worker (ohne Zustandsübergang) &
+  Schneller als Re-Enqueue &
+  Umgeht die Zustandsmaschine; schwerer testbar;
+  Timeout-Zustand fehlt \\
+\midrule
+Polling statt Timer &
+  Kein separater Thread pro Task &
+  Hohe CPU-Last durch ständiges Polling;
+  Reaktionszeit von Poll-Intervall abhängig \\
+\bottomrule
+\end{tabular}
+\caption{ADR-005: Bewertete Alternativen für Timeout-Behandlung}
+\end{table}
+
+\subsubsection*{Begründung}
+
+Die Timer-basierte Strategie wurde gewählt, weil:
+\begin{itemize}
+  \item Sie die vollständige Zustandsmaschine (\texttt{TIMEOUT},
+        \texttt{RETRYING}) durchläuft -- alle 8 geforderten Zustände
+        sind damit erreichbar.
+  \item \texttt{threading.Timer} ist Teil der Python-Standardbibliothek,
+        kein externes Framework nötig.
+  \item Die Konfigurierbarkeit (\texttt{DISPATCH\_TIMEOUT\_SECONDS},
+        \texttt{MAX\_RETRIES}) ermöglicht Anpassung ohne Code-Änderung.
+  \item Die \texttt{is\_terminal()}-Prüfung im Timer-Callback löst die
+        Race Condition zwischen gleichzeitig eintreffendem Ergebnis
+        und Timeout-Feuern.
+\end{itemize}
+
+\subsubsection*{Konfiguration}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Variable} & \textbf{Default} & \textbf{Bedeutung} \\
+\midrule
+\texttt{DISPATCH\_TIMEOUT\_SECONDS}        & 30 & Sekunden bis Timeout-Feuern \\
+\texttt{MAX\_RETRIES}                      & 3  & Max. Retry-Versuche vor FAILED \\
+\texttt{DISPATCH\_NO\_WORKER\_RETRY\_SECS} & 2  & Wartezeit wenn kein Worker verfügbar \\
+\bottomrule
+\end{tabular}
+\caption{ADR-005: Timeout-Konfiguration}
+\end{table}
+
+\subsubsection*{Konsequenzen}
+
+Positiv: Robustheit gegenüber ausgefallenen Workern.
+Ein transienter Fehler (Worker kurz überlastet, Netzwerk-Hickup)
+führt nicht sofort zu FAILED.
+Das Log zeigt jeden Retry mit \texttt{retry\_count},
+was die Fehlerdiagnose erleichtert.
+
+Negativ: Im schlechtesten Fall wartet ein Task
+$\texttt{MAX\_RETRIES} \times \texttt{DISPATCH\_TIMEOUT\_SECONDS}
+= 3 \times 30 = 90$ Sekunden, bevor er als FAILED markiert wird.
+Für Anwendungen mit harten Latenzanforderungen müsste der Timeout
+entsprechend kleiner gewählt werden.
+
+\subsection{ADR-006: Logging-Format und Propagation}
+
+\textbf{Status}: Akzeptiert \\
+\textbf{Betrifft}: \texttt{src/common/logger.py} (Issue \#19)
+
+\subsubsection*{Kontext}
+
+Das Logging-Modul wird von allen Dispatcher-Komponenten genutzt.
+Python-Logger propagieren Nachrichten standardmäßig aufwärts in der
+Logger-Hierarchie. Bei mehreren Komponenten mit eigenen Loggern
+(\texttt{dispatcher}, \texttt{dispatcher.dispatch\_loop} etc.) führt dies
+zu doppelten oder mehrfachen Log-Ausgaben.
+
+\subsubsection*{Entscheidung}
+
+\texttt{logger.propagate = False} wird in \texttt{get\_logger()} gesetzt,
+sobald Handler hinzugefügt wurden.
+
+\subsubsection*{Begründung}
+
+Ohne diese Einstellung würde ein Log-Eintrag in
+\texttt{dispatcher.dispatch\_loop} auch durch den \texttt{dispatcher}-Logger
+und den Root-Logger verarbeitet -- je nachdem wie viele Handler
+registriert sind, führt dies zu 2--4 identischen Ausgaben pro Event.
+Das Testprotokoll würde unlesbar.
+
+\subsubsection*{Konsequenzen}
+
+Jede Komponente (\texttt{dispatcher}, \texttt{dispatcher.dispatch\_loop},
+\texttt{dispatcher.namensdienst\_client} etc.) schreibt ihre Logs
+ausschließlich in ihre eigene Datei und auf stdout.
+Keine Überschneidungen, keine doppelten Einträge.

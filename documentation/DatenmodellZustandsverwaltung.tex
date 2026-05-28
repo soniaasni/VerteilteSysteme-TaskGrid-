@@ -1,1 +1,208 @@
 \section{Datenmodell und Zustandsverwaltung}
+\label{sec:datenmodell}
+
+\subsection{Task-Datenmodell}
+
+Jeder Task im System wird durch die Datenklasse \texttt{Task}
+(in \texttt{src/dispatcher/task.py}) repräsentiert.
+Das Modell entspricht dem in der Aufgabenstellung geforderten
+\texttt{task\_t}-Typ und enthält alle Pflichtfelder:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{llll}
+\toprule
+\textbf{Feld} & \textbf{Typ} & \textbf{Bedeutung} & \textbf{Länge} \\
+\midrule
+\texttt{task\_id}              & \texttt{str}        & Eindeutige Task-Nummer (int32-kompatibler Zähler) & -- \\
+\texttt{task\_type}            & \texttt{str}        & Aufgabentyp (z.\,B. \texttt{sum}, \texttt{reverse}) & max. 32 \\
+\texttt{payload}               & \texttt{str}        & Eingabedaten                                       & max. 1024 \\
+\texttt{result}                & \texttt{str}        & Berechnetes Ergebnis (leer bis COMPLETED)           & max. 1024 \\
+\texttt{status}                & \texttt{TaskState}  & Aktueller Zustand (Enum)                           & -- \\
+\texttt{timestamp\_created}    & \texttt{int}        & Unix-Timestamp Erstellungszeitpunkt                & -- \\
+\texttt{timestamp\_dispatched} & \texttt{int}        & Unix-Timestamp erster Dispatch-Zeitpunkt           & -- \\
+\texttt{timestamp\_completed}  & \texttt{int}        & Unix-Timestamp Abschlusszeitpunkt                  & -- \\
+\texttt{retry\_count}          & \texttt{int}        & Anzahl bisheriger Retry-Versuche                   & -- \\
+\texttt{assigned\_worker}      & \texttt{str}        & Worker-ID des zugeordneten Workers                 & max. 64 \\
+\bottomrule
+\end{tabular}
+\caption{Task-Datenfelder}
+\end{table}
+
+Die Längenbeschränkungen (\texttt{MAX\_TYPE\_LEN = 32}, \texttt{MAX\_PAYLOAD\_LEN = 1024},
+\texttt{MAX\_WORKER\_LEN = 64}) werden im \texttt{PostTask}-Handler geprüft.
+Überschreitungen werden mit gRPC-Fehlercode \texttt{INVALID\_ARGUMENT} abgelehnt.
+
+\subsection{Task-Identifikation}
+
+Task-IDs werden durch einen thread-sicheren, monoton steigenden Zähler
+in \texttt{src/common/protocol.py} erzeugt:
+
+\begin{lstlisting}[language=Python,caption={Thread-sichere Task-ID-Generierung}]
+_task_id_lock = threading.Lock()
+_task_id_counter = 0
+
+def new_task_id() -> str:
+    global _task_id_counter
+    with _task_id_lock:
+        _task_id_counter += 1
+        return str(_task_id_counter)
+\end{lstlisting}
+
+Der Zähler wird als String gespeichert, ist aber int32-kompatibel --
+notwendig für die Proto-Kompatibilität mit dem Worker-Code.
+
+\subsection{Zustände der Zustandsmaschine}
+
+Das System implementiert eine Zustandsmaschine mit \textbf{8 Zuständen}
+gemäß Aufgabenstellung §5. Zwei davon sind Terminalzustände:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Zustand} & \textbf{Bedeutung} & \textbf{Terminal?} \\
+\midrule
+\texttt{CREATED}    & Task angelegt, noch nicht eingereiht        & nein \\
+\texttt{QUEUED}     & In Warteschlange, wartet auf Dispatch        & nein \\
+\texttt{DISPATCHED} & An Worker gesendet, wartet auf Akzeptanz     & nein \\
+\texttt{PROCESSING} & Vom Worker akzeptiert, wird verarbeitet      & nein \\
+\texttt{TIMEOUT}    & Kein Ergebnis in Timeout-Zeitfenster         & nein \\
+\texttt{RETRYING}   & Wird erneut eingeplant (Retry läuft)         & nein \\
+\texttt{COMPLETED}  & Ergebnis erfolgreich empfangen               & \textbf{ja} \\
+\texttt{FAILED}     & Verarbeitung endgültig fehlgeschlagen        & \textbf{ja} \\
+\bottomrule
+\end{tabular}
+\caption{Task-Zustände und ihre Bedeutung}
+\end{table}
+
+\subsection{Erlaubte Zustandsübergänge}
+
+Die Zustandsmaschine ist in \texttt{src/dispatcher/state\_machine.py}
+implementiert. Ein Dictionary \texttt{VALID\_TRANSITIONS} definiert
+alle erlaubten Übergänge:
+
+\begin{lstlisting}[language=Python,caption={Erlaubte Zustandsübergänge (state\_machine.py)}]
+VALID_TRANSITIONS: dict[TaskState, set[TaskState]] = {
+    TaskState.CREATED:    {TaskState.QUEUED},
+    TaskState.QUEUED:     {TaskState.DISPATCHED, TaskState.FAILED},
+    TaskState.DISPATCHED: {TaskState.PROCESSING, TaskState.TIMEOUT,
+                           TaskState.FAILED},
+    TaskState.PROCESSING: {TaskState.COMPLETED,  TaskState.FAILED,
+                           TaskState.TIMEOUT},
+    TaskState.TIMEOUT:    {TaskState.RETRYING},
+    TaskState.RETRYING:   {TaskState.DISPATCHED,  TaskState.FAILED},
+    TaskState.COMPLETED:  set(),   # terminal
+    TaskState.FAILED:     set(),   # terminal
+}
+\end{lstlisting}
+
+Jeder Übergangsversuch der nicht in \texttt{VALID\_TRANSITIONS} gelistet ist,
+wirft eine \texttt{InvalidTransitionError}-Exception.
+Dies verhindert inkonsistente Zustände im Concurrent-Betrieb.
+
+\subsection{Zustandsdiagramm}
+
+\begin{figure}[H]
+\centering
+\begin{lstlisting}[language={},frame=single,basicstyle=\ttfamily\small]
+                    PostTask
+  [Client]  --------> CREATED --> QUEUED
+                                     |
+                        dispatch     |  (kein Worker)
+                         Loop        |  re-enqueue
+                             |       |
+                             v       v
+                         DISPATCHED <-------- RETRYING
+                          |    |                ^   |
+              ACK ok=True |    | Timeout        |   | retry_count >= MAX_RETRIES
+                          v    v                |   v
+                     PROCESSING --> TIMEOUT --->+  FAILED
+                          |
+               ReturnResult|  COMPLETED/FAILED
+                          v
+               COMPLETED (terminal) / FAILED (terminal)
+\end{lstlisting}
+\caption{Zustandsübergangsdiagramm (vereinfacht)}
+\end{figure}
+
+\subsection{Zustandsübergang-Implementierung}
+
+Die Funktion \texttt{transition()} wendet einen Zustandsübergang an
+und setzt automatisch die Timestamps:
+
+\begin{lstlisting}[language=Python,caption={transition()-Funktion (state\_machine.py)}]
+def transition(task: Task, new_state: TaskState) -> Task:
+    allowed = VALID_TRANSITIONS.get(task.status, set())
+    if new_state not in allowed:
+        raise InvalidTransitionError(
+            f"Task {task.task_id}: Uebergang {task.status} -> "
+            f"{new_state} nicht erlaubt."
+        )
+    task.status = new_state
+
+    if new_state == TaskState.DISPATCHED:
+        task.timestamp_dispatched = int(time.time())
+    elif new_state in (TaskState.COMPLETED, TaskState.FAILED):
+        task.timestamp_completed = int(time.time())
+
+    return task
+\end{lstlisting}
+
+\subsection{Thread-sichere Datenhaltung}
+
+\subsubsection{TaskStore (Issue \#21)}
+
+Der \texttt{TaskStore} hält alle Tasks in einem Dictionary im Arbeitsspeicher.
+Alle Methoden (Add, Get, Update, AllTasks) sind unter einem einzigen
+\texttt{threading.Lock()} serialisiert:
+
+\begin{itemize}
+  \item \texttt{add(task)}: Fügt neuen Task ein.
+  \item \texttt{get(task\_id)}: Gibt Task per ID zurück (None wenn nicht gefunden).
+  \item \texttt{update(task)}: Überschreibt bestehenden Task; wirft
+        \texttt{KeyError} wenn nicht vorhanden.
+  \item \texttt{all\_tasks()}: Gibt Snapshot aller Tasks zurück.
+  \item \texttt{count\_by\_status(status)}: Zählt Tasks in einem Zustand.
+  \item \texttt{worker\_load\_map()}: Gibt Anzahl aktiver Tasks pro Worker zurück.
+\end{itemize}
+
+\subsubsection{TaskQueue (Issue \#21)}
+
+Die \texttt{TaskQueue} kapselt \texttt{queue.Queue} aus der Python-Standardbibliothek.
+Diese ist von Haus aus thread-sicher (FIFO, blockierendes \texttt{get()}).
+Die Kapselung ermöglicht, künftig eine Priorisierung einzuführen,
+ohne den Rest des Dispatchers anzupassen.
+
+\begin{lstlisting}[language=Python,caption={TaskQueue-Implementierung (task\_queue.py)}]
+class TaskQueue:
+    def __init__(self) -> None:
+        self._q: queue.Queue[Task] = queue.Queue()
+
+    def enqueue(self, task: Task) -> None:
+        self._q.put(task)
+
+    def dequeue(self, timeout: float = 1.0) -> Optional[Task]:
+        try:
+            return self._q.get(timeout=timeout)
+        except queue.Empty:
+            return None
+\end{lstlisting}
+
+\subsection{Nebenläufigkeit im Dispatcher (Issue \#21)}
+
+Der Dispatcher verarbeitet mehrere Tasks gleichzeitig durch folgendes Design:
+
+\begin{enumerate}
+  \item Der \texttt{DispatchLoop}-Thread liest sequenziell aus der Queue
+        (kein Race auf \texttt{Queue.get()}).
+  \item Jeder Dispatch-Vorgang wird in einem eigenen Thread des
+        \texttt{ThreadPoolExecutor(max\_workers=10)} ausgeführt.
+  \item Dadurch können bis zu 10 Tasks gleichzeitig \textit{in-flight} sein
+        (an Worker gesendet, warten auf Ergebnis).
+  \item Alle Zugriffe auf \texttt{TaskStore} sind durch dessen internen Lock
+        serialisiert -- keine Race Conditions beim Zustandswechsel.
+  \item Timeout-Timer laufen ebenfalls in separaten Daemon-Threads.
+        Der Zugriff auf das Timer-Dictionary \texttt{\_timers} ist
+        durch \texttt{\_timers\_lock} geschützt.
+\end{enumerate}

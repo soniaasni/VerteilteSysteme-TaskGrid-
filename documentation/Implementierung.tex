@@ -1,9 +1,65 @@
-\section{Implementierunng}
-\subsection{Methodisches Vorgehen} 
-(z.B. agile Entwicklung, Prototyping)\\
-•	Auswahl/Begründung der eingesetzten Algorithmen/Architekturen\\
-•	Schwerpunktsetzung (z.B. Pfadplanung, Sensorfusion, Datenverarbeitung) mit Verweis auf wissenschaftliche Relevanz\\
-•	Detaillierte Beschreibung der wichtigsten Entwicklungsaspekte (z.B. SLAM-Implementierung, Optimierung von Sensordaten, Integration in App/UI)\\
-•	Umgang mit Hardwareproblemen: Auswirkungen auf das Softwaredesign, ggf. Umgehungslösungen
+\section{Implementierung}
 
-\subsection{LIDAR Datenverarbeitung}
+\subsection{Methodisches Vorgehen}
+
+Die Implementierung folgte einem \textbf{issue-basierten Ansatz}:
+Jede Funktion wurde als separates GitHub-Issue spezifiziert,
+in einem Feature-Branch implementiert, getestet und per Merge
+in \texttt{develop} integriert.
+
+Die Issues waren in drei Phasen gegliedert:
+\begin{itemize}
+  \item \textbf{Phase 1}: Proto-Definition, Projektstruktur
+  \item \textbf{Phase 2}: Dispatcher-Implementierung (Issues \#13--\#21)
+  \item \textbf{Phase 3}: Containerisierung mit Docker (Issues \#34--\#38)
+\end{itemize}
+
+\subsection{Dispatcher-Implementierung (Issues \#13--\#21)}
+
+Die Dispatcher-Implementierung wurde vollständig abgeschlossen.
+Alle 49 Integrationstests bestehen.
+Die wichtigsten implementierten Funktionen sind in
+Abschnitt~\ref{sec:technologien} detailliert beschrieben.
+
+Übersicht der implementierten Issues:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Issue} & \textbf{Titel} & \textbf{Hauptdatei} \\
+\midrule
+\#13 & POST\_TASK (Aufgabe einreichen)       & \texttt{servicer.py} \\
+\#14 & LOOKUP\_WORKER (Namensdienst-Abfrage) & \texttt{namensdienst\_client.py} \\
+\#15 & DISPATCH (Task an Worker senden)      & \texttt{dispatch\_loop.py} \\
+\#16 & RESULT\_RETURN (Ergebnis empfangen)   & \texttt{servicer.py} \\
+\#17 & GET\_RESULT (Ergebnis an Client)      & \texttt{servicer.py} \\
+\#18 & Timeout + Retry-Logik                 & \texttt{dispatch\_loop.py} \\
+\#19 & Strukturiertes Logging                & \texttt{src/common/logger.py} \\
+\#20 & GET\_STATUS Monitoring                & \texttt{http\_status\_server.py} \\
+\#21 & Queue + Nebenläufigkeit               & \texttt{task\_queue.py}, \texttt{task\_store.py} \\
+\bottomrule
+\end{tabular}
+\caption{Übersicht implementierter Dispatcher-Issues}
+\end{table}
+
+\subsection{Containerisierung (Issues \#34--\#38)}
+
+Alle vier Dockerfiles und die docker-compose.yml wurden vollständig
+implementiert. Details siehe Abschnitt~\ref{sec:technologien}.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Issue} & \textbf{Titel} & \textbf{Ergebnis} \\
+\midrule
+\#34 & Dockerfile für Client     & \texttt{client/Dockerfile} \\
+\#35 & Dockerfile für Dispatcher & \texttt{Dockerfile} (Root) \\
+\#36 & Dockerfile für Worker     & \texttt{worker/Dockerfile} + \texttt{worker/entrypoint.sh} \\
+\#37 & Dockerfile für Namensdienst & \texttt{nameservice/Dockerfile} \\
+\#38 & docker-compose.yml        & \texttt{docker-compose.yml} \\
+\bottomrule
+\end{tabular}
+\caption{Übersicht implementierter Docker-Issues}
+\end{table}

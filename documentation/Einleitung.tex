@@ -1,1 +1,61 @@
 \section{Einleitung}
+
+\subsection{Projektüberblick}
+
+TaskGrid+ ist ein verteiltes Aufgabenverwaltungssystem, das im Rahmen der Lehrveranstaltung
+\textit{Verteilte Systeme} an der Technischen Hochschule entwickelt wurde.
+Das System verteilt rechenintensive Aufgaben (Tasks) auf mehrere spezialisierte Worker-Prozesse
+und gibt die Ergebnisse an anfragende Clients zurück.
+Alle Komponenten kommunizieren ausschließlich über das gRPC-Protokoll;
+Konfiguration erfolgt vollständig über Umgebungsvariablen.
+Das Gesamtsystem wird mit Docker und Docker Compose containerisiert und betrieben.
+
+\subsection{Systemziele}
+
+Das System verfolgt folgende Kernziele:
+
+\begin{itemize}
+  \item \textbf{Entkopplung}: Dispatcher, Worker und Namensdienst kennen weder
+        Adressen noch Implementierungsdetails der jeweils anderen Komponenten.
+        Die Adressauflösung erfolgt ausschließlich dynamisch über den Namensdienst.
+  \item \textbf{Skalierbarkeit}: Worker-Instanzen lassen sich zur Laufzeit
+        starten und registrieren sich selbstständig beim Namensdienst.
+        Pro Task-Typ können beliebig viele Instanzen parallel betrieben werden.
+  \item \textbf{Robustheit}: Timeout-Erkennung und Retry-Mechanismus stellen sicher,
+        dass ein ausgefallener Worker nicht zum dauerhaften Verlust eines Tasks führt.
+  \item \textbf{Nachvollziehbarkeit}: Jede Zustandsänderung eines Tasks wird
+        strukturiert geloggt mit \texttt{request\_id}, \texttt{task\_id} und Event-Name.
+\end{itemize}
+
+\subsection{Verantwortlichkeiten im Team}
+
+Die Implementierung wurde arbeitsteilig durchgeführt.
+Die folgende Tabelle zeigt die Zuordnung der bearbeiteten Issues:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Issues} & \textbf{Komponente} & \textbf{Bearbeitung} \\
+\midrule
+\#13 -- \#21 & Dispatcher (Implementierung, Phase 2) & soniaasni \\
+\#34 -- \#38 & Docker / Containerisierung (Phase 3) & soniaasni \\
+Namensdienst gRPC-Server & Service Discovery & Xplosy \\
+Worker Task-Handler & Aufgabenverarbeitung & Elena7x \\
+Client-Implementierung & Demo-Client & Elena7x \\
+\bottomrule
+\end{tabular}
+\caption{Aufgabenverteilung im Projektteam}
+\end{table}
+
+\subsection{Aufbau der Dokumentation}
+
+Die Dokumentation folgt dem Aufbau des Systems:
+Abschnitt~\ref{sec:systemarchitektur} beschreibt die Gesamtarchitektur und
+Komponentenstruktur.
+Abschnitt~\ref{sec:kommunikation} erläutert das gRPC-Kommunikationsprotokoll.
+Abschnitt~\ref{sec:datenmodell} dokumentiert das Task-Datenmodell und die Zustandsmaschine.
+Abschnitt~\ref{sec:namensdienst} behandelt Service Discovery und Worker-Verwaltung.
+Abschnitt~\ref{sec:technologien} beschreibt die Containerisierung mit Docker.
+Abschnitt~\ref{sec:tests} belegt die Korrektheit durch Tests.
+Abschnitt~\ref{sec:adr} dokumentiert die wichtigsten Architekturentscheidungen (ADRs).

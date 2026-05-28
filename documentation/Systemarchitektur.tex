@@ -1,5 +1,156 @@
 \section{Systemarchitektur}
-\subsection{Architekturdiagramm}
+\label{sec:systemarchitektur}
+
+\subsection{Architekturüberblick}
+
+TaskGrid+ ist nach dem \textbf{Client-Dispatcher-Worker}-Muster aufgebaut.
+Clients senden Aufgaben an den zentralen Dispatcher, der diese verwaltet
+und an geeignete Worker weiterleitet.
+Die Adressierung der Worker erfolgt nicht statisch, sondern dynamisch über
+einen eigenen \textbf{Namensdienst} (Service Discovery), bei dem sich jeder
+Worker beim Start registriert.
+
+\begin{figure}[H]
+\centering
+\begin{lstlisting}[language={},frame=single,basicstyle=\ttfamily\small]
+  +--------+   PostTask / GetResult   +------------+
+  | Client |  ----------------------> | Dispatcher |
+  +--------+   (gRPC :50051)          +-----+------+
+                                            |
+                         LookupWorker       |  ExecuteTask
+                         (gRPC :50052)      v  (gRPC :50051)
+                    +---------------+   +--------+
+                    | Namensdienst  |   | Worker |
+                    |  (Discovery)  |   | (N x)  |
+                    +-------+-------+   +--------+
+                            ^
+                    Register / Heartbeat
+                    (Worker --> Namensdienst)
+\end{lstlisting}
+\caption{Komponentendiagramm TaskGrid+}
+\end{figure}
+
 \subsection{Begründung der Architektur}
+
+Die Trennung in vier Komponenten (Client, Dispatcher, Namensdienst, Worker)
+hat folgende Vorteile:
+
+\begin{itemize}
+  \item \textbf{Dispatcher als zentrales Koordinationsorgan}: Er kennt alle
+        Tasks, verwaltet deren Zustände und steuert die Retry-Logik.
+        Kein anderer Systemteil muss über den Gesamtzustand Bescheid wissen.
+  \item \textbf{Worker vollständig zustandslos}: Jeder Worker empfängt genau
+        einen Task, verarbeitet ihn und sendet das Ergebnis an den Dispatcher
+        zurück. Worker können jederzeit hinzugefügt oder entfernt werden,
+        ohne das System zu stoppen.
+  \item \textbf{Namensdienst als Single Source of Truth}: Worker-Adressen
+        werden \emph{nirgends} statisch konfiguriert.
+        Der Dispatcher fragt den Namensdienst bei jedem Dispatch-Vorgang ab.
+        Fällt ein Worker aus, wird er nicht mehr gefunden -- kein manuelles
+        Eingreifen nötig.
+  \item \textbf{gRPC als einziges Transportprotokoll}: Einheitliches
+        Schnittstellenformat, effiziente binäre Serialisierung (Protobuf),
+        einfache Sprachunabhängigkeit.
+\end{itemize}
+
 \subsection{Beschreibung der Komponenten}
+
+\subsubsection{Dispatcher}
+
+Der Dispatcher ist die zentrale Steuereinheit des Systems.
+Er nimmt Tasks von Clients entgegen (\texttt{PostTask}),
+reiht sie in eine FIFO-Queue ein, und versendet sie über einen
+Background-Thread (\texttt{DispatchLoop}) an Worker.
+Er empfängt Ergebnisse von Workern (\texttt{ReturnResult}),
+verwaltet die Zustandsmaschine (8 Zustände, s. Abschnitt~\ref{sec:datenmodell})
+und stellt Ergebnisse an Clients bereit (\texttt{GetResult}).
+
+Ein separater HTTP-Thread beantwortet Monitoring-Anfragen
+(\texttt{GET /status}, Port 8080).
+
+Die Dispatcher-Implementierung ist in \texttt{src/dispatcher/} abgelegt und
+umfasst folgende Module:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Modul} & \textbf{Aufgabe} \\
+\midrule
+\texttt{server.py}              & gRPC-Serverstart, Dependency-Injection \\
+\texttt{servicer.py}            & gRPC-Handler (PostTask, GetResult, ReturnResult, GetStatus) \\
+\texttt{dispatch\_loop.py}      & Background-Thread, Dispatch + Timeout-Timer \\
+\texttt{state\_machine.py}      & Zustandsübergänge, \texttt{InvalidTransitionError} \\
+\texttt{task.py}                & Task-Datenklasse \\
+\texttt{task\_queue.py}         & Thread-sichere FIFO-Queue \\
+\texttt{task\_store.py}         & Thread-sicherer In-Memory-Speicher \\
+\texttt{worker\_selector.py}    & Round-Robin-Auswahl \\
+\texttt{namensdienst\_client.py}& gRPC-Client zum Namensdienst \\
+\texttt{worker\_client.py}      & gRPC-Client zum Worker \\
+\texttt{status\_collector.py}   & Monitoring-Daten aggregieren \\
+\texttt{http\_status\_server.py}& HTTP \texttt{GET /status} \\
+\bottomrule
+\end{tabular}
+\caption{Dispatcher-Module und ihre Aufgaben}
+\end{table}
+
+\subsubsection{Namensdienst}
+
+Der Namensdienst implementiert Service Discovery für das gesamte System.
+Worker registrieren sich beim Start mit ihrer Adresse, dem unterstützten
+Task-Typ und einem Heartbeat-Intervall.
+Der Namensdienst erkennt inaktive Worker über ausgebliebene Heartbeats
+(Timeout konfigurierbar per \texttt{HEARTBEAT\_TIMEOUT\_SECONDS}).
+Der Dispatcher ruft \texttt{LookupWorker} auf, um aktive Worker
+für einen bestimmten Task-Typ zu erhalten.
+
+\subsubsection{Worker}
+
+Worker sind zustandslose Verarbeitungseinheiten.
+Jeder Worker implementiert den gRPC-Dienst \texttt{WorkerService}
+mit der Methode \texttt{ExecuteTask}.
+Die unterstützten Task-Typen werden per Umgebungsvariable
+\texttt{WORKER\_TYPE} konfiguriert.
+Das System unterstützt fünf Pflicht-Task-Typen:
+\texttt{reverse}, \texttt{sum}, \texttt{hash}, \texttt{upper}, \texttt{wait}.
+
+\subsubsection{Client}
+
+Der Client sendet Tasks an den Dispatcher und fragt deren Ergebnisse ab.
+Im Demo-Modus (\texttt{CLIENT\_MODE=demo}) sendet er je einen Task
+aller Pflichttypen, wartet auf die Ergebnisse und beendet sich.
+
 \subsection{Container- und Netzwerkstruktur}
+\label{sec:container}
+
+Alle Komponenten werden als Docker-Container betrieben.
+Das interne Docker-Netzwerk \texttt{taskgrid} verbindet alle Container.
+Nach außen sind nur die Ports des Dispatchers (50051, 8080) und
+des Namensdiensts (50052) freigegeben.
+Worker-Ports bleiben intern.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{llll}
+\toprule
+\textbf{Service}      & \textbf{Build-Kontext} & \textbf{Exponierte Ports} & \textbf{Skalierbar} \\
+\midrule
+\texttt{namensdienst} & \texttt{./nameservice} & 50052 (gRPC)              & nein \\
+\texttt{dispatcher}   & \texttt{.} (Root)      & 50051 (gRPC), 8080 (HTTP) & nein \\
+\texttt{worker-sum}   & \texttt{./worker}      & -- (intern)               & ja \\
+\texttt{worker-reverse} & \texttt{./worker}    & -- (intern)               & ja \\
+\texttt{worker-hash}  & \texttt{./worker}      & -- (intern)               & ja \\
+\texttt{worker-upper} & \texttt{./worker}      & -- (intern)               & ja \\
+\texttt{worker-wait}  & \texttt{./worker}      & -- (intern)               & ja \\
+\texttt{client}       & \texttt{.} (Root)      & -- (intern)               & nein \\
+\bottomrule
+\end{tabular}
+\caption{Docker-Services und Ports}
+\end{table}
+
+Die Startreihenfolge wird über \texttt{depends\_on} mit
+\texttt{condition: service\_healthy} erzwungen:
+Namensdienst startet zuerst, danach der Dispatcher,
+danach alle Worker und schließlich der Client.
+Health Checks prüfen per TCP-Port-Sonde ob der gRPC-Port
+tatsächlich erreichbar ist (nicht nur ob der Prozess gestartet ist).
