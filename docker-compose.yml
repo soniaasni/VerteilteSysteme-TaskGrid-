@@ -1,56 +1,125 @@
 version: "3.9"
 
+# ──────────────────────────────────────────────────────────────────────────────
+# TaskGrid+ — docker-compose.yml
+# Startet alle Pflichtkomponenten des Systems:
+#   namensdienst  — Service Discovery
+#   dispatcher    — Aufgabenverwaltung + Zustandsmaschine
+#   worker        — Aufgabenverarbeitung (skalierbar per --scale worker=N)
+#   client        — Demo-Client (sendet Tasks, wartet auf Ergebnisse, beendet sich)
+#
+# Skalierung Worker-Typ (Beispiel aus §11):
+#   docker compose up --scale worker=3
+#
+# Konfiguration ausschließlich via Umgebungsvariablen (§11, keine statischen Adressen).
+# Volumes NUR für Logs — kein gemeinsames Volume zur Aufgaben-/Ergebnisübergabe (§8).
+# ──────────────────────────────────────────────────────────────────────────────
+
 services:
 
+  # ── Namensdienst (Service Discovery) ────────────────────────────────────────
   namensdienst:
     build:
       context: ./nameservice
     container_name: namensdienst
     ports:
-      - "50052:50052"
+      - "50052:50052"             # gRPC nach außen (für lokale Tests)
     environment:
       - NAMENSDIENST_PORT=50052
     networks:
       - taskgrid
 
+  # ── Dispatcher ───────────────────────────────────────────────────────────────
   dispatcher:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: dispatcher
     ports:
-      - "50051:50051"       # gRPC
-      - "8080:8080"         # HTTP Monitoring (GET /status)
+      - "50051:50051"             # gRPC  (Client → Dispatcher)
+      - "8080:8080"               # HTTP  (GET /status — Monitoring §4.5)
     environment:
       - DISPATCHER_PORT=50051
       - STATUS_HTTP_PORT=8080
+      # Namensdienst-Adresse: ausschließlich über Env-Var (§4.2: kein statisches Hinterlegen)
       - NAMENSDIENST_HOST=namensdienst
       - NAMENSDIENST_PORT=50052
+      # Robustheit: Timeout und maximale Retry-Versuche (§7, Issue #18)
       - DISPATCH_TIMEOUT_SECONDS=30
       - MAX_RETRIES=3
+      - LOG_DIR=/app/logs
     depends_on:
       - namensdienst
+    volumes:
+      - logs:/app/logs            # Logs persistieren (§8: nur für Logs erlaubt)
     networks:
       - taskgrid
 
+  # ── Worker ───────────────────────────────────────────────────────────────────
+  # Skalierbar: docker compose up --scale worker=3
+  # Jede Instanz registriert sich eigenständig beim Namensdienst (§4.3).
+  # Env-Vars als vollständige Adressen — worker.py liest NAMING_SERVICE_ADDRESS
+  # und DISPATCHER_ADDRESS (nicht HOST/PORT einzeln).
   worker:
     build:
       context: ./worker
-    deploy:
-      replicas: 2
     environment:
+      # Adresse des Namensdiensts (vollständige gRPC-Adresse)
+      - NAMING_SERVICE_ADDRESS=namensdienst:50052
+      # Adresse des Dispatchers für RESULT_RETURN (vollständige gRPC-Adresse)
+      - DISPATCHER_ADDRESS=dispatcher:50051
+      # Eigene Adresse: Docker-interner Service-Name (DNS-Auflösung durch Docker)
       - WORKER_HOST=worker
       - WORKER_PORT=50051
-      - DISPATCHER_HOST=dispatcher
-      - DISPATCHER_PORT=50051
-      - NAMENSDIENST_HOST=namensdienst
-      - NAMENSDIENST_PORT=50052
+      # Unterstützte Task-Typen dieser Worker-Instanz (kommagetrennt)
+      # Alle 5 Pflicht-/Empfehlungstypen aktiviert (§3, Issue #29–#33)
+      - TASK_TYPES=reverse,sum,hash,upper,wait
+      # Heartbeat-Intervall in Sekunden (§4.4: regelmäßige Heartbeats)
+      - HEARTBEAT_INTERVAL=5
     depends_on:
       - namensdienst
       - dispatcher
     networks:
       - taskgrid
 
+  # ── Client ───────────────────────────────────────────────────────────────────
+  # Eigener Container gemäß §11 (Pflichtbestandteil).
+  # Demo-Modus (CLIENT_MODE=demo): sendet je einen Task aller Pflichttypen,
+  # wartet auf Ergebnisse und beendet sich (restart: "no").
+  #
+  # Andere Modi via Umgebungsvariable:
+  #   CLIENT_MODE=send   + TASK_TYPE=reverse + TASK_PAYLOAD="hello world"
+  #   CLIENT_MODE=result + TASK_ID=42
+  client:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    environment:
+      - DISPATCHER_ADDRESS=dispatcher:50051
+      - CLIENT_ID=client-demo
+      - CLIENT_MODE=demo
+      - POLL_INTERVAL_SECONDS=1.0
+      - POLL_TIMEOUT_SECONDS=60.0
+      # Verbindungsaufbau: wartet bis Dispatcher bereit ist (Docker-Startup)
+      - CONNECT_RETRIES=20
+      - CONNECT_RETRY_DELAY_SECONDS=3.0
+      - LOG_DIR=/app/logs
+    depends_on:
+      - dispatcher
+    volumes:
+      - logs:/app/logs
+    networks:
+      - taskgrid
+    restart: "no"               # Client ist ein One-Shot-Container (beendet sich nach Demo)
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
+# Nur für Logs — KEIN gemeinsames Volume für Task-/Ergebnisübergabe (§8).
+volumes:
+  logs:
+
+# ── Netzwerk ──────────────────────────────────────────────────────────────────
+# Internes Bridge-Netzwerk: Komponenten kommunizieren per Service-Name.
+# Docker DNS löst z. B. "dispatcher" → Container-IP auf (§4.4 Hinweis).
 networks:
   taskgrid:
     driver: bridge
