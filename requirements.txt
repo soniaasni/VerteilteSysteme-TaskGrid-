@@ -1,2 +1,5 @@
 # TaskGrid+ Runtime-Abhängigkeiten
-grpcio>=1.62
+# Mindestversion 1.80 wegen generiertem Proto-Code (proto/taskgrid_pb2_grpc.py
+# prüft GRPC_GENERATED_VERSION = '1.80.0' zur Laufzeit und wirft RuntimeError
+# bei niedrigerer installierter Version).
+grpcio>=1.80

@@ -52,6 +52,11 @@ def get_logger(component: str) -> logging.Logger:
             pass   # Kein Schreibzugriff im Test → nur Console
 
         logger.setLevel(logging.DEBUG)
+        # Verhindert doppelte Ausgabe durch Parent-Logger-Propagation.
+        # Python-Logging propagiert Nachrichten standardmäßig die Logger-Hierarchie
+        # hoch (dispatcher.dispatch_loop → dispatcher → root). Da jeder Logger
+        # eigene Handler hat, würde jede Nachricht mehrfach ausgegeben.
+        logger.propagate = False
     return logger
 
 
