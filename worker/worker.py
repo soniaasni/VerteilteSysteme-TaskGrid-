@@ -38,22 +38,41 @@ HANDLERS = {
 }
 
 
-def register_worker():
-    with grpc.insecure_channel(NAMING_SERVICE_ADDRESS) as channel:
-        stub = taskgrid_pb2_grpc.NamingServiceStub(channel)
+def register_worker(max_retries=5):
+    wait_seconds = 1
 
-        response = stub.RegisterWorker(
-            taskgrid_pb2.WorkerInfo(
-                worker_id=WORKER_ID,
-                task_types=TASK_TYPES,
-                address=WORKER_HOST,
-                port=WORKER_PORT,
-                status="ACTIVE",
-                current_load=0,
+    for attempt in range(1, max_retries + 1):
+        try:
+            with grpc.insecure_channel(NAMING_SERVICE_ADDRESS) as channel:
+                stub = taskgrid_pb2_grpc.NamingServiceStub(channel)
+
+                response = stub.RegisterWorker(
+                    taskgrid_pb2.WorkerInfo(
+                        worker_id=WORKER_ID,
+                        task_types=TASK_TYPES,
+                        address=WORKER_HOST,
+                        port=WORKER_PORT,
+                        status="ACTIVE",
+                        current_load=0,
+                    )
+                )
+
+                if response.success:
+                    print(f"[{WORKER_ID}] registered: {response.message}")
+                    return
+
+                print(f"[{WORKER_ID}] registration rejected: {response.message}")
+
+        except Exception as error:
+            print(
+                f"[{WORKER_ID}] registration failed "
+                f"attempt={attempt}/{max_retries} error={error}"
             )
-        )
 
-        print(f"[{WORKER_ID}] register_worker: {response.message}")
+        time.sleep(wait_seconds)
+        wait_seconds *= 2
+
+    raise RuntimeError(f"[{WORKER_ID}] could not register after {max_retries} attempts")
 
 
 def send_heartbeat_loop():
