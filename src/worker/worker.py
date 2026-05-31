@@ -182,10 +182,10 @@ def send_result_to_dispatcher(task, result, status="COMPLETED", error=""):
             )
         )
 
-        print(
-            f"[{WORKER_ID}] result sent "
-            f"task_id={task.task_id} status={status} response={response.message}"
-        )
+        logging.indo(
+                f"[{WORKER_ID}] response={response.message}"
+                f"task_id={task.task_id} status=RESULT SENT"
+            )
 
 def increase_load():
     global current_load
@@ -208,11 +208,10 @@ class WorkerService(taskgrid_pb2_grpc.WorkerServiceServicer):
 
     def ExecuteTask(self, request, context):
         increase_load()
-        print(
-            f"[{WORKER_ID}] received task "
-            f"request_id={request.request_id} "
-            f"task_id={request.task_id} "
-            f"type={request.task_type}"
+
+        logging.info(
+            f"[{WORKER_ID}] request_id={request.request_id} "
+            f"task_id={request.task_id} status=PROCESSING"
         )
 
         try:
@@ -229,9 +228,9 @@ class WorkerService(taskgrid_pb2_grpc.WorkerServiceServicer):
         except Exception as error:
             error_text = str(error)
 
-            print(
-                f"[{WORKER_ID}] processing failed "
-                f"task_id={request.task_id} error={error_text}"
+            logging.error(
+                f"[{WORKER_ID}] request_id={request.request_id} "
+                f"task_id={request.task_id} status=PROCESSING FAILED"
             )
 
             send_result_to_dispatcher(
@@ -269,10 +268,10 @@ def serve():
     server.add_insecure_port(f"0.0.0.0:{WORKER_PORT}")
     server.start()
 
-    print(
-        f"[{WORKER_ID}] Worker started "
-        f"address={WORKER_HOST}:{WORKER_PORT} types={TASK_TYPES}"
-    )
+    logging.info(
+        f"[{WORKER_ID}]"
+        f"address={WORKER_HOST}:{WORKER_PORT} types={TASK_TYPES} status=WORKER STARTED"
+    )    
 
     try:
         server.wait_for_termination()
