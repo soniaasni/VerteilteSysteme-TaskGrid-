@@ -10,6 +10,13 @@ from generated import taskgrid_pb2_grpc
 
 from task_handlers import reverse, upper, sum_handler, hash_handler, wait_handler
 
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
+
 
 #erzeugt eindeutige uuid für jeden Worker (z.B. für neue Worker während der Laufzeit) 
 #übersichtlicher für Logs: Bei Systemstart startet Docker compose feste Anzahl von Workern mit fester ID
@@ -38,12 +45,15 @@ HANDLERS = {
 }
 
 
+# Registrierung mit 5 Versuchen mit längerem warten nach jedem Versuch
 def register_worker(max_retries=5):
     wait_seconds = 1
 
     for attempt in range(1, max_retries + 1):
+
         try:
             with grpc.insecure_channel(NAMING_SERVICE_ADDRESS) as channel:
+
                 stub = taskgrid_pb2_grpc.NamingServiceStub(channel)
 
                 response = stub.RegisterWorker(
@@ -58,21 +68,43 @@ def register_worker(max_retries=5):
                 )
 
                 if response.success:
-                    print(f"[{WORKER_ID}] registered: {response.message}")
+
+                    logging.info(
+                        f"worker_id={WORKER_ID} "
+                        f"event=REGISTER_SUCCESS "
+                        f"attempt={attempt}"
+                    )
+
                     return
 
-                print(f"[{WORKER_ID}] registration rejected: {response.message}")
+                logging.warning(
+                    f"worker_id={WORKER_ID} "
+                    f"event=REGISTER_REJECTED "
+                    f"attempt={attempt} "
+                    f"message='{response.message}'"
+                )
 
         except Exception as error:
-            print(
-                f"[{WORKER_ID}] registration failed "
-                f"attempt={attempt}/{max_retries} error={error}"
+
+            logging.error(
+                f"worker_id={WORKER_ID} "
+                f"event=REGISTER_FAILED "
+                f"attempt={attempt}/{max_retries} "
+                f"error='{error}'"
             )
 
         time.sleep(wait_seconds)
         wait_seconds *= 2
 
-    raise RuntimeError(f"[{WORKER_ID}] could not register after {max_retries} attempts")
+    logging.critical(
+        f"worker_id={WORKER_ID} "
+        f"event=REGISTER_ABORTED "
+        f"reason='max retries exceeded'"
+    )
+
+    raise RuntimeError(
+        f"Worker {WORKER_ID} could not register at naming service."
+    )
 
 
 def send_heartbeat_loop():
