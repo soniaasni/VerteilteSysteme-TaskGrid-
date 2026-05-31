@@ -15,12 +15,14 @@ message WorkerInfo {
   int32  port         = 4;
   string status       = 5;
   int32  current_load = 6;
+  string message_type = 7;
 }
 
 message HeartbeatRequest {
   string worker_id    = 1;
   int64  timestamp    = 2;          // Elena: timestamp als int64
   int32  current_load = 3;
+  string message_type = 4;
 }
 
 // Task-Nachrichten (Dispatcher ↔ Worker, Elena-kompatibel)
@@ -28,7 +30,8 @@ message TaskRequest {
   string request_id  = 1;
   int32  task_id     = 2;           // int32 wie Elena — Dispatcher konvertiert intern
   string task_type   = 3;
-  string task_payload = 4;          // Elena: task_payload statt payload
+  string task_payload = 4; 
+  string message_type = 5;         // Elena: task_payload statt payload
 }
 
 message TaskResponse {
@@ -36,6 +39,7 @@ message TaskResponse {
   int32  task_id   = 2;
   string worker_id = 3;
   string error     = 4;
+  string message_type = 5;
 }
 
 // Ergebnis-Rückmeldung Worker → Dispatcher
@@ -45,13 +49,15 @@ message ResultRequest {
   string worker_id  = 3;
   string status     = 4;           // "COMPLETED" oder "FAILED"
   string result     = 5;
-  string error      = 6;           // Elena: error statt error_msg
+  string error      = 6;   
+  string message_type = 7;        // Elena: error statt error_msg
 }
 
 // ACK mit Erfolgs-Flag
 message Ack {
   bool   success = 1;
   string message = 2;
+  string message_type = 3;
 }
 
 // ── Dispatcher-eigene Client-Schnittstelle ─────────────────────────────────
@@ -61,39 +67,46 @@ message PostTaskRequest {
   string task_type   = 2;
   string task_payload = 3;
   string sender      = 4;
+  string message_type = 5;
 }
 
 message GetResultRequest {
   string request_id = 1;
   int32  task_id    = 2;
   string sender     = 3;
+  string message_type = 4;
 }
 
 message ResultResponse {
   int32  task_id = 1;
   string status  = 2;
   string result  = 3;
+  string message_type = 4;
 }
 
 message StatusRequest {
   string sender = 1;
+  string message_type = 2;
 }
 
 message StatusResponse {
   int32  queued_tasks   = 1;
   int32  active_workers = 2;
   string details        = 3;
+  string message_type = 4;
 }
 
 // ── Lookup (Dispatcher → Namensdienst) ───────────────────────────────────────
 
 message LookupRequest {
   string task_type = 1;
+  string message_type = 2;
 }
 
 message LookupResponse {
   bool             found   = 1;
   repeated WorkerInfo workers = 2;
+  string message_type = 3;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
