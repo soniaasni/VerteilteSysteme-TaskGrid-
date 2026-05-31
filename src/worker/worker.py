@@ -5,10 +5,11 @@ import grpc
 import threading
 from concurrent import futures
 
-from generated import taskgrid_pb2
-from generated import taskgrid_pb2_grpc
+from src.worker import taskgrid_pb2
+from src.worker import taskgrid_pb2_grpc
 
-from task_handlers import reverse, upper, sum_handler, hash_handler, wait_handler
+from src.worker.task_handlers import hash_handler, reverse, sum_handler, upper
+from src.worker.task_handlers import wait_handler
 
 import logging
 
@@ -16,6 +17,9 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s"
 )
+
+current_load = 0
+load_lock = threading.Lock()
 
 
 #erzeugt eindeutige uuid für jeden Worker (z.B. für neue Worker während der Laufzeit) 
@@ -33,7 +37,7 @@ TASK_TYPES = [
     for task_type in os.getenv("TASK_TYPES", "reverse").split(",")
 ]
 
-HEARTBEAT_INTERVAL = int(os.getenv("HEARTBEAT_INTERVAL", "5"))
+HEARTBEAT_INTERVAL = int(os.getenv("HEARTBEAT_INTERVAL_SECONDS", "5"))
 
 
 HANDLERS = {
@@ -115,11 +119,13 @@ def send_heartbeat_loop():
 
                 response = stub.SendHeartbeat(
                     taskgrid_pb2.HeartbeatRequest(
+                        message_type="HEARTBEAT",
+                        sender = WORKER_ID,
                         worker_id=WORKER_ID,
                         timestamp=int(time.time()),
-                        current_load=0,
-                    )
-                )
+                        current_load=get_current_load()
+    )
+)
 
                 print(f"[{WORKER_ID}] heartbeat: {response.message}")
 
@@ -181,10 +187,27 @@ def send_result_to_dispatcher(task, result, status="COMPLETED", error=""):
             f"task_id={task.task_id} status={status} response={response.message}"
         )
 
+def increase_load():
+    global current_load
+
+    with load_lock:
+        current_load += 1
+
+
+def decrease_load():
+    global current_load
+
+    with load_lock:
+        current_load -= 1
+
+def get_current_load():
+    with load_lock:
+        return current_load
 
 class WorkerService(taskgrid_pb2_grpc.WorkerServiceServicer):
 
     def ExecuteTask(self, request, context):
+        increase_load()
         print(
             f"[{WORKER_ID}] received task "
             f"request_id={request.request_id} "
@@ -224,6 +247,8 @@ class WorkerService(taskgrid_pb2_grpc.WorkerServiceServicer):
                 worker_id=WORKER_ID,
                 error=error_text,
             )
+        finally:
+            decrease_load()
 
 
 def serve():
