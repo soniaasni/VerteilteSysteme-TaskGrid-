@@ -15,6 +15,10 @@ from src.worker.task_handlers import wait_handler
 
 import logging
 
+# ?
+class TaskProcessingError(Exception):
+    pass
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s"
@@ -170,13 +174,23 @@ def deregister_worker():
 
 def process_task(task):
     if task.task_type not in TASK_TYPES:
-        raise ValueError(f"Worker unterstützt Tasktyp nicht: {task.task_type}")
-
+        raise TaskProcessingError(
+            f"Tasktyp '{task.task_type}' wird von Worker {WORKER_ID} nicht unterstützt"
+        )
     if task.task_type not in HANDLERS:
-        raise ValueError(f"Kein Handler implementiert für: {task.task_type}")
+        raise TaskProcessingError(
+            f"Kein Handler für Tasktyp '{task.task_type}' implementiert"
+        )
+    try:
+        return HANDLERS[task.task_type](task.task_payload)
 
-    return HANDLERS[task.task_type](task.task_payload)
+    except TaskProcessingError:
+        raise
 
+    except Exception as error:
+        raise TaskProcessingError(
+            f"Interner Fehler bei task_id={task.task_id}: {error}"
+        )
 
 def send_result_to_dispatcher(task, result, status="COMPLETED", error=""):
     with grpc.insecure_channel(DISPATCHER_ADDRESS) as channel:
@@ -215,7 +229,7 @@ def get_current_load():
     with load_lock:
         return current_load
     
-def handle_shutdown_signal(signum, frame):
+def handle_shutdown_signal(signum, _frame):
     global is_draining
 
     logging.info(
@@ -319,11 +333,14 @@ class WorkerService(taskgrid_pb2_grpc.WorkerServiceServicer):
             )
 
         except Exception as error:
-            error_text = str(error)
+            error_text = (
+                f"task_id={request.task_id} worker_id={WORKER_ID} "
+                f"error='{str(error)}'"
+            )
 
             logging.error(
                 f"[{WORKER_ID}] request_id={request.request_id} "
-                f"task_id={request.task_id} status=PROCESSING FAILED"
+                f"task_id={request.task_id} status=FAILED error='{str(error)}'"
             )
 
             send_result_to_dispatcher(
