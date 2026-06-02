@@ -3,133 +3,303 @@ syntax = "proto3";
 package taskgrid;
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Messages — übernommen von Elena (worker/proto/taskgrid.proto) + Dispatcher-
-// spezifische Erweiterungen für PostTask / GetResult / GetStatus / LookupWorker
+// Gemeinsame Antwort für einfache Bestätigungen
 // ──────────────────────────────────────────────────────────────────────────────
 
-// Worker-Metadaten (Registrierung, Lookup)
-message WorkerInfo {
-  string worker_id    = 1;
-  repeated string task_types = 2;   // Elena: liste statt einzelner Typ
-  string address      = 3;
-  int32  port         = 4;
-  string status       = 5;
-  int32  current_load = 6;
-  string message_type = 7;
+message Ack {
+  string message_type = 1;
+  string request_id = 2;
+  int64 timestamp = 3;
+  string sender = 4;
+
+  message Payload {
+    bool success = 1;
+    string message = 2;
+  }
+
+  Payload payload = 5;
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// NamingService: Worker registrieren
+// ──────────────────────────────────────────────────────────────────────────────
+
+message RegisterWorkerRequest {
+  string message_type = 1;
+  string request_id = 2;
+  int64 timestamp = 3;
+  string sender = 4;
+
+  message Payload {
+    string worker_id = 1;
+    repeated string task_types = 2;
+    string address = 3;
+    int32 port = 4;
+    string status = 5;
+    int32 current_load = 6;
+  }
+
+  Payload payload = 5;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// NamingService: Heartbeat
+// ──────────────────────────────────────────────────────────────────────────────
 
 message HeartbeatRequest {
-  string worker_id    = 1;
-  int64  timestamp    = 2;          // Elena: timestamp als int64
-  int32  current_load = 3;
-  string message_type = 4;
+  string message_type = 1;
+  string request_id = 2;
+  int64 timestamp = 3;
+  string sender = 4;
+
+  message Payload {
+    string worker_id = 1;
+    int32 current_load = 2;
+    string status = 3;
+  }
+
+  Payload payload = 5;
 }
 
-// Task-Nachrichten (Dispatcher ↔ Worker, Elena-kompatibel)
-message TaskRequest {
-  string request_id  = 1;
-  int32  task_id     = 2;           // int32 wie Elena — Dispatcher konvertiert intern
-  string task_type   = 3;
-  string task_payload = 4; 
-  string message_type = 5;         // Elena: task_payload statt payload
+// ──────────────────────────────────────────────────────────────────────────────
+// NamingService: Worker deregistrieren
+// ──────────────────────────────────────────────────────────────────────────────
+
+message DeregisterWorkerRequest {
+  string message_type = 1;
+  string request_id = 2;
+  int64 timestamp = 3;
+  string sender = 4;
+
+  message Payload {
+    string worker_id = 1;
+  }
+
+  Payload payload = 5;
 }
 
-message TaskResponse {
-  string status    = 1;
-  int32  task_id   = 2;
-  string worker_id = 3;
-  string error     = 4;
-  string message_type = 5;
-}
-
-// Ergebnis-Rückmeldung Worker → Dispatcher
-message ResultRequest {
-  string request_id = 1;
-  int32  task_id    = 2;
-  string worker_id  = 3;
-  string status     = 4;           // "COMPLETED" oder "FAILED"
-  string result     = 5;
-  string error      = 6;   
-  string message_type = 7;        // Elena: error statt error_msg
-}
-
-// ACK mit Erfolgs-Flag
-message Ack {
-  bool   success = 1;
-  string message = 2;
-  string message_type = 3;
-}
-
-// ── Dispatcher-eigene Client-Schnittstelle ─────────────────────────────────
-
-message PostTaskRequest {
-  string request_id  = 1;
-  string task_type   = 2;
-  string task_payload = 3;
-  string sender      = 4;
-  string message_type = 5;
-}
-
-message GetResultRequest {
-  string request_id = 1;
-  int32  task_id    = 2;
-  string sender     = 3;
-  string message_type = 4;
-}
-
-message ResultResponse {
-  int32  task_id = 1;
-  string status  = 2;
-  string result  = 3;
-  string message_type = 4;
-}
-
-message StatusRequest {
-  string sender = 1;
-  string message_type = 2;
-}
-
-message StatusResponse {
-  int32  queued_tasks   = 1;
-  int32  active_workers = 2;
-  string details        = 3;
-  string message_type = 4;
-}
-
-// ── Lookup (Dispatcher → Namensdienst) ───────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────────
+// NamingService: Worker Lookup
+// ──────────────────────────────────────────────────────────────────────────────
 
 message LookupRequest {
-  string task_type = 1;
-  string message_type = 2;
+  string message_type = 1;
+  string request_id = 2;
+  int64 timestamp = 3;
+  string sender = 4;
+
+  message Payload {
+    string task_type = 1;
+  }
+
+  Payload payload = 5;
 }
 
 message LookupResponse {
-  bool             found   = 1;
-  repeated WorkerInfo workers = 2;
-  string message_type = 3;
+  string message_type = 1;
+  string request_id = 2;
+  int64 timestamp = 3;
+  string sender = 4;
+
+  message WorkerPayload {
+    string worker_id = 1;
+    repeated string task_types = 2;
+    string address = 3;
+    int32 port = 4;
+    string status = 5;
+    int32 current_load = 6;
+  }
+
+  message Payload {
+    bool found = 1;
+    repeated WorkerPayload workers = 2;
+    string message = 3;
+  }
+
+  Payload payload = 5;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Client → Dispatcher: Task senden
+// ──────────────────────────────────────────────────────────────────────────────
+
+message PostTaskRequest {
+  string message_type = 1;
+  string request_id = 2;
+  int64 timestamp = 3;
+  string sender = 4;
+
+  message Payload {
+    string task_type = 1;
+    string task_payload = 2;
+  }
+
+  Payload payload = 5;
+}
+
+message PostTaskResponse {
+  string message_type = 1;
+  string request_id = 2;
+  int64 timestamp = 3;
+  string sender = 4;
+
+  message Payload {
+    bool success = 1;
+    int32 task_id = 2;
+    string status = 3;
+    string message = 4;
+  }
+
+  Payload payload = 5;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Client → Dispatcher: Ergebnis abfragen
+// ──────────────────────────────────────────────────────────────────────────────
+
+message GetResultRequest {
+  string message_type = 1;
+  string request_id = 2;
+  int64 timestamp = 3;
+  string sender = 4;
+
+  message Payload {
+    int32 task_id = 1;
+  }
+
+  Payload payload = 5;
+}
+
+message ResultResponse {
+  string message_type = 1;
+  string request_id = 2;
+  int64 timestamp = 3;
+  string sender = 4;
+
+  message Payload {
+    bool found = 1;
+    int32 task_id = 2;
+    string status = 3;
+    string result = 4;
+    string error = 5;
+  }
+
+  Payload payload = 5;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Dispatcher → Worker: Task ausführen
+// ──────────────────────────────────────────────────────────────────────────────
+
+message TaskRequest {
+  string message_type = 1;
+  string request_id = 2;
+  int64 timestamp = 3;
+  string sender = 4;
+
+  message Payload {
+    int32 task_id = 1;
+    string task_type = 2;
+    string task_payload = 3;
+    string task_status = 4;
+  }
+
+  Payload payload = 5;
+}
+
+message TaskResponse {
+  string message_type = 1;
+  string request_id = 2;
+  int64 timestamp = 3;
+  string sender = 4;
+
+  message Payload {
+    bool accepted = 1;
+    int32 task_id = 2;
+    string worker_id = 3;
+    string status = 4;
+    string error = 5;
+  }
+
+  Payload payload = 5;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Worker → Dispatcher: Ergebnis zurückgeben
+// ──────────────────────────────────────────────────────────────────────────────
+
+message ResultRequest {
+  string message_type = 1;
+  string request_id = 2;
+  int64 timestamp = 3;
+  string sender = 4;
+
+  message Payload {
+    int32 task_id = 1;
+    string worker_id = 2;
+    string status = 3;
+    string result = 4;
+    string error = 5;
+  }
+
+  Payload payload = 5;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Monitoring / Status
+// ──────────────────────────────────────────────────────────────────────────────
+
+message StatusRequest {
+  string message_type = 1;
+  string request_id = 2;
+  int64 timestamp = 3;
+  string sender = 4;
+
+  message Payload {
+  }
+
+  Payload payload = 5;
+}
+
+message StatusResponse {
+  string message_type = 1;
+  string request_id = 2;
+  int64 timestamp = 3;
+  string sender = 4;
+
+  message Payload {
+    int32 queued_tasks = 1;
+    int32 active_workers = 2;
+    int32 running_tasks = 3;
+    int32 completed_tasks = 4;
+    int32 failed_tasks = 5;
+    int32 timeout_count = 6;
+    int32 retry_count = 7;
+    double average_processing_time_ms = 8;
+    string details = 9;
+  }
+
+  Payload payload = 5;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Services
 // ──────────────────────────────────────────────────────────────────────────────
 
-// NamingService (Elena-kompatibel) — implementiert von Xplosy
 service NamingService {
-  rpc RegisterWorker   (WorkerInfo)       returns (Ack);
-  rpc SendHeartbeat    (HeartbeatRequest) returns (Ack);
-  rpc DeregisterWorker (WorkerInfo)       returns (Ack);
-  rpc LookupWorker     (LookupRequest)    returns (LookupResponse);
+  rpc RegisterWorker   (RegisterWorkerRequest)   returns (Ack);
+  rpc SendHeartbeat    (HeartbeatRequest)         returns (Ack);
+  rpc DeregisterWorker (DeregisterWorkerRequest) returns (Ack);
+  rpc LookupWorker     (LookupRequest)            returns (LookupResponse);
 }
 
-// DispatcherService — Client → Dispatcher + Worker → Dispatcher
 service DispatcherService {
-  rpc PostTask     (PostTaskRequest)  returns (TaskResponse);
+  rpc PostTask     (PostTaskRequest)  returns (PostTaskResponse);
   rpc GetResult    (GetResultRequest) returns (ResultResponse);
   rpc GetStatus    (StatusRequest)    returns (StatusResponse);
   rpc ReturnResult (ResultRequest)    returns (Ack);
 }
 
-// WorkerService (Elena-kompatibel) — implementiert von Worker
 service WorkerService {
   rpc ExecuteTask (TaskRequest) returns (TaskResponse);
 }

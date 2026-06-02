@@ -30,7 +30,6 @@ class NamingServiceStub(object):
     Services
     ──────────────────────────────────────────────────────────────────────────────
 
-    NamingService (Elena-kompatibel) — implementiert von Xplosy
     """
 
     def __init__(self, channel):
@@ -41,7 +40,7 @@ class NamingServiceStub(object):
         """
         self.RegisterWorker = channel.unary_unary(
                 '/taskgrid.NamingService/RegisterWorker',
-                request_serializer=taskgrid__pb2.WorkerInfo.SerializeToString,
+                request_serializer=taskgrid__pb2.RegisterWorkerRequest.SerializeToString,
                 response_deserializer=taskgrid__pb2.Ack.FromString,
                 _registered_method=True)
         self.SendHeartbeat = channel.unary_unary(
@@ -51,7 +50,7 @@ class NamingServiceStub(object):
                 _registered_method=True)
         self.DeregisterWorker = channel.unary_unary(
                 '/taskgrid.NamingService/DeregisterWorker',
-                request_serializer=taskgrid__pb2.WorkerInfo.SerializeToString,
+                request_serializer=taskgrid__pb2.DeregisterWorkerRequest.SerializeToString,
                 response_deserializer=taskgrid__pb2.Ack.FromString,
                 _registered_method=True)
         self.LookupWorker = channel.unary_unary(
@@ -66,7 +65,6 @@ class NamingServiceServicer(object):
     Services
     ──────────────────────────────────────────────────────────────────────────────
 
-    NamingService (Elena-kompatibel) — implementiert von Xplosy
     """
 
     def RegisterWorker(self, request, context):
@@ -98,7 +96,7 @@ def add_NamingServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'RegisterWorker': grpc.unary_unary_rpc_method_handler(
                     servicer.RegisterWorker,
-                    request_deserializer=taskgrid__pb2.WorkerInfo.FromString,
+                    request_deserializer=taskgrid__pb2.RegisterWorkerRequest.FromString,
                     response_serializer=taskgrid__pb2.Ack.SerializeToString,
             ),
             'SendHeartbeat': grpc.unary_unary_rpc_method_handler(
@@ -108,7 +106,7 @@ def add_NamingServiceServicer_to_server(servicer, server):
             ),
             'DeregisterWorker': grpc.unary_unary_rpc_method_handler(
                     servicer.DeregisterWorker,
-                    request_deserializer=taskgrid__pb2.WorkerInfo.FromString,
+                    request_deserializer=taskgrid__pb2.DeregisterWorkerRequest.FromString,
                     response_serializer=taskgrid__pb2.Ack.SerializeToString,
             ),
             'LookupWorker': grpc.unary_unary_rpc_method_handler(
@@ -129,7 +127,6 @@ class NamingService(object):
     Services
     ──────────────────────────────────────────────────────────────────────────────
 
-    NamingService (Elena-kompatibel) — implementiert von Xplosy
     """
 
     @staticmethod
@@ -147,7 +144,7 @@ class NamingService(object):
             request,
             target,
             '/taskgrid.NamingService/RegisterWorker',
-            taskgrid__pb2.WorkerInfo.SerializeToString,
+            taskgrid__pb2.RegisterWorkerRequest.SerializeToString,
             taskgrid__pb2.Ack.FromString,
             options,
             channel_credentials,
@@ -201,7 +198,7 @@ class NamingService(object):
             request,
             target,
             '/taskgrid.NamingService/DeregisterWorker',
-            taskgrid__pb2.WorkerInfo.SerializeToString,
+            taskgrid__pb2.DeregisterWorkerRequest.SerializeToString,
             taskgrid__pb2.Ack.FromString,
             options,
             channel_credentials,
@@ -242,8 +239,7 @@ class NamingService(object):
 
 
 class DispatcherServiceStub(object):
-    """DispatcherService — Client → Dispatcher + Worker → Dispatcher
-    """
+    """Missing associated documentation comment in .proto file."""
 
     def __init__(self, channel):
         """Constructor.
@@ -254,7 +250,7 @@ class DispatcherServiceStub(object):
         self.PostTask = channel.unary_unary(
                 '/taskgrid.DispatcherService/PostTask',
                 request_serializer=taskgrid__pb2.PostTaskRequest.SerializeToString,
-                response_deserializer=taskgrid__pb2.TaskResponse.FromString,
+                response_deserializer=taskgrid__pb2.PostTaskResponse.FromString,
                 _registered_method=True)
         self.GetResult = channel.unary_unary(
                 '/taskgrid.DispatcherService/GetResult',
@@ -274,8 +270,7 @@ class DispatcherServiceStub(object):
 
 
 class DispatcherServiceServicer(object):
-    """DispatcherService — Client → Dispatcher + Worker → Dispatcher
-    """
+    """Missing associated documentation comment in .proto file."""
 
     def PostTask(self, request, context):
         """Missing associated documentation comment in .proto file."""
@@ -307,7 +302,7 @@ def add_DispatcherServiceServicer_to_server(servicer, server):
             'PostTask': grpc.unary_unary_rpc_method_handler(
                     servicer.PostTask,
                     request_deserializer=taskgrid__pb2.PostTaskRequest.FromString,
-                    response_serializer=taskgrid__pb2.TaskResponse.SerializeToString,
+                    response_serializer=taskgrid__pb2.PostTaskResponse.SerializeToString,
             ),
             'GetResult': grpc.unary_unary_rpc_method_handler(
                     servicer.GetResult,
@@ -333,8 +328,7 @@ def add_DispatcherServiceServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class DispatcherService(object):
-    """DispatcherService — Client → Dispatcher + Worker → Dispatcher
-    """
+    """Missing associated documentation comment in .proto file."""
 
     @staticmethod
     def PostTask(request,
@@ -352,7 +346,7 @@ class DispatcherService(object):
             target,
             '/taskgrid.DispatcherService/PostTask',
             taskgrid__pb2.PostTaskRequest.SerializeToString,
-            taskgrid__pb2.TaskResponse.FromString,
+            taskgrid__pb2.PostTaskResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -446,8 +440,7 @@ class DispatcherService(object):
 
 
 class WorkerServiceStub(object):
-    """WorkerService (Elena-kompatibel) — implementiert von Worker
-    """
+    """Missing associated documentation comment in .proto file."""
 
     def __init__(self, channel):
         """Constructor.
@@ -463,8 +456,7 @@ class WorkerServiceStub(object):
 
 
 class WorkerServiceServicer(object):
-    """WorkerService (Elena-kompatibel) — implementiert von Worker
-    """
+    """Missing associated documentation comment in .proto file."""
 
     def ExecuteTask(self, request, context):
         """Missing associated documentation comment in .proto file."""
@@ -489,8 +481,7 @@ def add_WorkerServiceServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class WorkerService(object):
-    """WorkerService (Elena-kompatibel) — implementiert von Worker
-    """
+    """Missing associated documentation comment in .proto file."""
 
     @staticmethod
     def ExecuteTask(request,

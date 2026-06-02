@@ -71,15 +71,21 @@ def register_worker(max_retries=5):
                 stub = taskgrid_pb2_grpc.NamingServiceStub(channel)
 
                 response = stub.RegisterWorker(
-                    taskgrid_pb2.WorkerInfo(
-                        worker_id=WORKER_ID,
-                        task_types=TASK_TYPES,
-                        address=WORKER_HOST,
-                        port=WORKER_PORT,
-                        status="ACTIVE",
-                        current_load=0,
+                    taskgrid_pb2.RegisterWorkerRequest(
+                        message_type="REGISTER_WORKER",
+                        request_id=str(uuid.uuid4()),
+                        timestamp=int(time.time()),
+                        sender=WORKER_ID,
+                        payload=taskgrid_pb2.RegisterWorkerRequest.Payload(
+                            worker_id=WORKER_ID,
+                            task_types=TASK_TYPES,
+                            address=WORKER_HOST,
+                            port=WORKER_PORT,
+                            status="ACTIVE",
+                            current_load=get_current_load(),
+                        )
                     )
-                )
+                    )
 
                 if response.success:
 
@@ -131,9 +137,12 @@ def send_heartbeat_loop():
                     taskgrid_pb2.HeartbeatRequest(
                         message_type="HEARTBEAT",
                         sender = WORKER_ID,
-                        worker_id=WORKER_ID,
                         timestamp=int(time.time()),
-                        current_load=get_current_load()
+                        request_id = str(uuid.uuid4()),
+                        payload = taskgrid_pb2.HeartbeatRequest.Payload(
+                            worker_id=WORKER_ID,
+                            current_load=get_current_load()
+                        )
     )
 )
 
@@ -151,13 +160,14 @@ def deregister_worker():
             stub = taskgrid_pb2_grpc.NamingServiceStub(channel)
 
             response = stub.DeregisterWorker(
-                taskgrid_pb2.WorkerInfo(
-                    worker_id=WORKER_ID,
-                    task_types=TASK_TYPES,
-                    address=WORKER_HOST,
-                    port=WORKER_PORT,
-                    status="OFFLINE",
-                    current_load=get_current_load(),
+                taskgrid_pb2.DeregisterWorkerRequest(
+                    message_type = "DEREGISTER WORKER",
+                    request_id = str(uuid.uuid4()),
+                    timestamp=int(time.time()),
+                    sender = WORKER_ID,
+                    payload = taskgrid_pb2.DeregisterWorkerRequest.Payload(
+                        worker_id=WORKER_ID,
+                    )
                 )
             )
 
@@ -173,16 +183,16 @@ def deregister_worker():
 
 
 def process_task(task):
-    if task.task_type not in TASK_TYPES:
+    if task.payload.task_type not in TASK_TYPES:
         raise TaskProcessingError(
-            f"Tasktyp '{task.task_type}' wird von Worker {WORKER_ID} nicht unterstützt"
+            f"Tasktyp '{task.payload.task_type}' wird von Worker {WORKER_ID} nicht unterstützt"
         )
-    if task.task_type not in HANDLERS:
+    if task.paylaod.task_type not in HANDLERS:
         raise TaskProcessingError(
-            f"Kein Handler für Tasktyp '{task.task_type}' implementiert"
+            f"Kein Handler für Tasktyp '{task.paylaod.task_type}' implementiert"
         )
     try:
-        return HANDLERS[task.task_type](task.task_payload)
+        return HANDLERS[task.paylaod.task_type](task.task_payload)
 
     except TaskProcessingError:
         raise
@@ -198,19 +208,24 @@ def send_result_to_dispatcher(task, result, status="COMPLETED", error=""):
 
         response = stub.ReturnResult(
             taskgrid_pb2.ResultRequest(
+                message_type="RESULT_RETURN",
                 request_id=task.request_id,
-                task_id=task.task_id,
-                worker_id=WORKER_ID,
-                status=status,
-                result=result,
-                error=error,
+                timestamp=int(time.time()),
+                sender=WORKER_ID,
+                payload=taskgrid_pb2.ResultRequest.Payload(
+                    task_id=task.payload.task_id,
+                    worker_id=WORKER_ID,
+                    status=status,
+                    result=result,
+                    error=error,
+                )
             )
         )
 
-        logging.indo(
-                f"[{WORKER_ID}] response={response.message}"
-                f"task_id={task.task_id} status=RESULT SENT"
-            )
+        logging.info(
+            f"[{WORKER_ID}] response={response.payload.message} "
+            f"task_id={task.payload.task_id} status=RESULT_SENT"
+        )
 
 def increase_load():
     global current_load
@@ -263,19 +278,25 @@ def update_worker_status(status):
             stub = taskgrid_pb2_grpc.NamingServiceStub(channel)
 
             response = stub.RegisterWorker(
-                taskgrid_pb2.WorkerInfo(
-                    worker_id=WORKER_ID,
-                    task_types=TASK_TYPES,
-                    address=WORKER_HOST,
-                    port=WORKER_PORT,
-                    status=status,
-                    current_load=get_current_load(),
+                taskgrid_pb2.RegisterWorkerRequest(
+                    message_type="REGISTER_WORKER",
+                    request_id=str(uuid.uuid4()),
+                    timestamp=int(time.time()),
+                    sender=WORKER_ID,
+                    payload=taskgrid_pb2.RegisterWorkerRequest.Payload(
+                        worker_id=WORKER_ID,
+                        task_types=TASK_TYPES,
+                        address=WORKER_HOST,
+                        port=WORKER_PORT,
+                        status=status,
+                        current_load=get_current_load(),
+                    )
                 )
             )
 
             logging.info(
                 f"[{WORKER_ID}] event=STATUS_UPDATE "
-                f"status={status} message='{response.message}'"
+                f"status={status} message='{response.payload.message}'"
             )
 
     except Exception as error:
@@ -299,26 +320,35 @@ def graceful_shutdown():
 
 class WorkerService(taskgrid_pb2_grpc.WorkerServiceServicer):
 
-    # Wird vom Dispatcher aufegrufen, wenn neue Aufgabe kommt
     def ExecuteTask(self, request, context):
+        task_id = request.payload.task_id
+        task_type = request.payload.task_type
+
         if is_draining:
             logging.warning(
                 f"[{WORKER_ID}] request_id={request.request_id} "
-                f"task_id={request.task_id} status=REJECTED reason=DRAINING"
+                f"task_id={task_id} status=REJECTED reason=DRAINING"
             )
 
             return taskgrid_pb2.TaskResponse(
-                status="rejected",
-                task_id=request.task_id,
-                worker_id=WORKER_ID,
-                error="Worker is shutting down"
+                message_type="TASK_RESPONSE",
+                request_id=request.request_id,
+                timestamp=int(time.time()),
+                sender=WORKER_ID,
+                payload=taskgrid_pb2.TaskResponse.Payload(
+                    accepted=False,
+                    task_id=task_id,
+                    worker_id=WORKER_ID,
+                    status="rejected",
+                    error="Worker is shutting down",
+                )
             )
-        
+
         increase_load()
 
         logging.info(
             f"[{WORKER_ID}] request_id={request.request_id} "
-            f"task_id={request.task_id} status=PROCESSING"
+            f"task_id={task_id} status=PROCESSING"
         )
 
         try:
@@ -326,21 +356,28 @@ class WorkerService(taskgrid_pb2_grpc.WorkerServiceServicer):
             send_result_to_dispatcher(request, result)
 
             return taskgrid_pb2.TaskResponse(
-                status="accepted",
-                task_id=request.task_id,
-                worker_id=WORKER_ID,
-                error="",
+                message_type="TASK_RESPONSE",
+                request_id=request.request_id,
+                timestamp=int(time.time()),
+                sender=WORKER_ID,
+                payload=taskgrid_pb2.TaskResponse.Payload(
+                    accepted=True,
+                    task_id=task_id,
+                    worker_id=WORKER_ID,
+                    status="accepted",
+                    error="",
+                )
             )
 
         except Exception as error:
             error_text = (
-                f"task_id={request.task_id} worker_id={WORKER_ID} "
+                f"task_id={task_id} worker_id={WORKER_ID} "
                 f"error='{str(error)}'"
             )
 
             logging.error(
                 f"[{WORKER_ID}] request_id={request.request_id} "
-                f"task_id={request.task_id} status=FAILED error='{str(error)}'"
+                f"task_id={task_id} status=FAILED error='{str(error)}'"
             )
 
             send_result_to_dispatcher(
@@ -351,11 +388,19 @@ class WorkerService(taskgrid_pb2_grpc.WorkerServiceServicer):
             )
 
             return taskgrid_pb2.TaskResponse(
-                status="failed",
-                task_id=request.task_id,
-                worker_id=WORKER_ID,
-                error=error_text,
+                message_type="TASK_RESPONSE",
+                request_id=request.request_id,
+                timestamp=int(time.time()),
+                sender=WORKER_ID,
+                payload=taskgrid_pb2.TaskResponse.Payload(
+                    accepted=False,
+                    task_id=task_id,
+                    worker_id=WORKER_ID,
+                    status="failed",
+                    error=error_text,
+                )
             )
+
         finally:
             decrease_load()
 
