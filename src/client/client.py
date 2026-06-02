@@ -25,8 +25,10 @@ def send_task(task_type: str, payload: str):
                     request_id=request_id,
                     timestamp=int(time.time()),
                     sender=CLIENT_ID,
-                    task_type=task_type,
-                    task_payload=payload,
+                    payload=taskgrid_pb2.PostTaskRequest.Payload(
+                        task_type=task_type,
+                        task_payload=payload,
+                    )
                 )
             )
 
@@ -61,7 +63,9 @@ def request_result(task_id: int):
                     request_id=request_id,
                     timestamp=int(time.time()),
                     sender=CLIENT_ID,
-                    task_id=task_id,
+                    payload=taskgrid_pb2.GetResultRequest.Payload(
+                        task_id=task_id,
+                    )
                 )
             )
 
