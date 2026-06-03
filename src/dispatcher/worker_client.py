@@ -4,6 +4,8 @@ Sendet ExecuteTask per gRPC an einen Worker (Elena-kompatibel).
 Die Adresse wird dynamisch übergeben (kommt vom Namensdienst — nie statisch).
 """
 
+import time
+
 import grpc
 
 from proto import taskgrid_pb2, taskgrid_pb2_grpc
@@ -29,17 +31,23 @@ class WorkerClient:
             stub = taskgrid_pb2_grpc.WorkerServiceStub(channel)
             response = stub.ExecuteTask(
                 taskgrid_pb2.TaskRequest(
+                    message_type="EXECUTE_TASK",
                     request_id=task.task_id,
-                    task_id=int(task.task_id),       # int32 — Elena-Kompatibilität
-                    task_type=task.task_type,
-                    task_payload=task.payload,        # Elena: task_payload statt payload
+                    timestamp=int(time.time()),
+                    sender="dispatcher",
+                    payload=taskgrid_pb2.TaskRequest.Payload(
+                        task_id=int(task.task_id),
+                        task_type=task.task_type,
+                        task_payload=task.payload,
+                        task_status="DISPATCHED",
+                    ),
                 ),
                 timeout=DISPATCH_TIMEOUT_SECS,
             )
-            if response.status != "accepted":
+            if not response.payload.accepted:
                 log_event(logger, "warning", "DISPATCH_TASK_nack",
-                          task_id=task.task_id, target=target, reason=response.error)
-            return response.status == "accepted"
+                          task_id=task.task_id, target=target, reason=response.payload.error)
+            return response.payload.accepted
 
         except grpc.RpcError as e:
             log_event(logger, "error", "DISPATCH_TASK_rpc_error",

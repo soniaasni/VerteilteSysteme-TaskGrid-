@@ -274,7 +274,9 @@ def test_concurrent_post_task_all_stored():
 
     def post():
         req = taskgrid_pb2.PostTaskRequest(
-            request_id="r", task_type="sum", task_payload="1,2", sender="c"
+            request_id="r",
+            sender="c",
+            payload=taskgrid_pb2.PostTaskRequest.Payload(task_type="sum", task_payload="1,2"),
         )
         ctx = MagicMock()
         try:
@@ -312,12 +314,16 @@ def test_concurrent_return_result_idempotent():
 
     def return_result(result_val):
         req = taskgrid_pb2.ResultRequest(
-            request_id="r", task_id=42, worker_id="w1",
-            status="COMPLETED", result=result_val,
+            request_id="r",
+            sender="w1",
+            payload=taskgrid_pb2.ResultRequest.Payload(
+                task_id=42, worker_id="w1",
+                status="COMPLETED", result=result_val,
+            ),
         )
         ack = servicer.ReturnResult(req, MagicMock())
         with lock:
-            results.append(ack.success)
+            results.append(ack.payload.success)
 
     threads = [threading.Thread(target=return_result, args=(f"val{i}",))
                for i in range(20)]

@@ -9,6 +9,7 @@ Adresse des Namensdiensts kommt ausschließlich aus Umgebungsvariablen:
 """
 
 import os
+import time
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -51,7 +52,15 @@ class NamensdienstClient:
         """
         try:
             response = self._stub.LookupWorker(
-                taskgrid_pb2.LookupRequest(task_type=task_type),
+                taskgrid_pb2.LookupRequest(
+                    message_type="LOOKUP_WORKER",
+                    request_id=request_id,
+                    timestamp=int(time.time()),
+                    sender="dispatcher",
+                    payload=taskgrid_pb2.LookupRequest.Payload(
+                        task_type=task_type,
+                    ),
+                ),
                 timeout=5.0,
             )
         except grpc.RpcError as e:
@@ -62,7 +71,7 @@ class NamensdienstClient:
                       target=self._target)
             return []
 
-        if not response.found or not response.workers:
+        if not response.payload.found or not response.payload.workers:
             log_event(logger, "warning", "LOOKUP_WORKER_no_workers",
                       request_id=request_id,
                       task_type=task_type)
@@ -75,7 +84,7 @@ class NamensdienstClient:
                 port=w.port,
                 current_load=w.current_load,
             )
-            for w in response.workers
+            for w in response.payload.workers
         ]
         log_event(logger, "info", "LOOKUP_WORKER_success",
                   request_id=request_id,

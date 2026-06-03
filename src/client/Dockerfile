@@ -3,19 +3,16 @@
 # Issue #34 (soniaasni)
 #
 # Build-Kontext: Projekt-Root (context: .)
-#   Warum Root statt ./client?
-#   Der Client importiert gemeinsam genutzte Module:
-#     proto/taskgrid_pb2.py          (gRPC-Stubs, shared mit Dispatcher)
-#     proto/taskgrid_pb2_grpc.py
-#     src/common/logger.py           (strukturiertes Logging §13)
-#     src/common/protocol.py
-#   Diese liegen im Root, nicht im client/-Verzeichnis.
-#   Das Kopieren in ein eigenes Unterverzeichnis würde Code-Duplizierung erzeugen.
+#   docker-compose.yml: build: { context: ., dockerfile: src/client/Dockerfile }
 #
-# Betriebsmodi (CLIENT_MODE):
-#   demo    — sendet Demo-Tasks aller Pflichttypen, wartet auf Ergebnisse
-#   send    — sendet einen Task (TASK_TYPE + TASK_PAYLOAD), gibt task_id aus
-#   result  — fragt Ergebnis für TASK_ID ab
+# Der Client braucht aus dem Root:
+#   requirements.txt             — grpcio Runtime-Abhängigkeit
+#   proto/                       — generierte gRPC-Stubs (shared mit Dispatcher)
+#   src/client/                  — Client-Implementierung
+#
+# Betriebsmodi:
+#   send    — sendet einen Task (task_type + payload), gibt task_id aus
+#   result  — fragt Ergebnis für task_id ab
 # ──────────────────────────────────────────────────────────────────────────────
 
 FROM python:3.11-slim
@@ -36,15 +33,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Proto-Stubs (shared zwischen Dispatcher und Client)
 COPY proto/ ./proto/
 
-# Gemeinsame Module (Logger §13, Protokoll-Typen)
-COPY src/ ./src/
-
 # Client-Quelltext
-COPY client/ ./client/
+COPY src/client/ ./src/client/
 
 # ── Python-Pfad ───────────────────────────────────────────────────────────────
-# /app als Root → "from proto import ..." und "from src.common import ..." funktionieren.
-ENV PYTHONPATH=/app
+# /app als Root → "from proto import ..." und "from src.client import ..." funktionieren.
+# /app/proto zusätzlich → generierter gRPC-Code verwendet "import taskgrid_pb2"
+# (absoluter Import seit grpcio>=1.80), proto/-Verzeichnis muss direkt im sys.path
+# liegen damit dieser Import aufgelöst werden kann.
+ENV PYTHONPATH=/app:/app/proto
 
 # ── Log-Verzeichnis ───────────────────────────────────────────────────────────
 # Strukturierte Logs gemäß §13; Volume-Mount in docker-compose.yml
@@ -55,22 +52,9 @@ RUN mkdir -p /app/logs
 #
 # DISPATCHER_ADDRESS   : gRPC-Adresse des Dispatchers (Service-Name aus docker-compose)
 # CLIENT_ID            : Eindeutiger Name dieses Client-Containers (für Logs)
-# CLIENT_MODE          : Betriebsmodus: demo | send | result
-# TASK_TYPE            : Aufgabentyp für CLIENT_MODE=send  (z. B. "reverse")
-# TASK_PAYLOAD         : Nutzdaten    für CLIENT_MODE=send  (z. B. "hello")
-# TASK_ID              : Task-ID      für CLIENT_MODE=result
-# POLL_INTERVAL_SECONDS: Abfrageintervall beim Warten auf Ergebnis (Default: 1.0)
-# POLL_TIMEOUT_SECONDS : Maximale Wartezeit auf Ergebnis            (Default: 60.0)
-# CONNECT_RETRIES      : Verbindungsversuche zum Dispatcher         (Default: 15)
-# CONNECT_RETRY_DELAY_SECONDS: Wartezeit zwischen Verbindungsversuchen (Default: 2.0)
 
 ENV DISPATCHER_ADDRESS=dispatcher:50051
 ENV CLIENT_ID=client-1
-ENV CLIENT_MODE=demo
-ENV POLL_INTERVAL_SECONDS=1.0
-ENV POLL_TIMEOUT_SECONDS=60.0
-ENV CONNECT_RETRIES=15
-ENV CONNECT_RETRY_DELAY_SECONDS=2.0
 
 # ── Start ─────────────────────────────────────────────────────────────────────
-CMD ["python", "client/client.py"]
+CMD ["python", "src/client/client.py"]
