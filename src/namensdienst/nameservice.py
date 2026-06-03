@@ -1,5 +1,6 @@
 import time
 import grpc
+from src.namensdienst.worker import Worker
 from proto import taskgrid_pb2, taskgrid_pb2_grpc
 
 class Namensdienst:
@@ -7,7 +8,7 @@ class Namensdienst:
         self.workers = []
         self.idcount = 0
 
-    def register_worker(self,type,address,port):
+    def RegisterWorker(self,type,address,port):
         self.workers.append(Worker(type,address,port,self.idcount,self))
         self.idcount += 1
         print("Registered Worker of type " + type + " with address " + address + ":" + port)
@@ -15,10 +16,10 @@ class Namensdienst:
 
         )
 
-    def lookup_worker(self,type):
+    def LookupWorker(self,type):
         result = []
         for worker in self.workers:
-            if worker.type==type:
+            if worker.type==type and worker.status != "UNHEALTHY" and worker.status != "OFFLINE":
                 result.append(worker)
         print("Found workers of type " + type + ": ")
         for worker in result:
@@ -28,7 +29,7 @@ class Namensdienst:
         )
         
 
-    def deregister_worker(self,address,port):
+    def DeregisterWorker(self,address,port):
         for worker in self.workers:
             if worker.address == address and worker.port == port:
                 self.workers.remove(worker)
@@ -36,10 +37,10 @@ class Namensdienst:
                 return True
         print("Could not find Worker with address " + address + " and port " + port)
         return taskgrid_pb2.DeregisterResponse(
-            
+
         )
     
-    def receive_heartbeat(self,worker_id,load):
+    def SendHeartbeat(self,worker_id,load):
         for worker in self.workers:
             if worker.id == worker_id:
                 worker.lastHeartbeat = time.time()
@@ -47,17 +48,10 @@ class Namensdienst:
                 return True
         return False
 
-class Worker:
-    def __init__(self,type,address,port,id,dienst):
-        self.type = type
-        self.address = address
-        self.port = port
-        self.id = id
-        self.dienst = dienst
-
-        self.lastHeartbeat = time.time()
-        self.status = "AVAILABLE"
-        self.currentLoad = 0
+    def startLoop():
+        i = 1
+    def endLoop():
+        i = 1
 
         
 testDienst = Namensdienst()
@@ -83,4 +77,16 @@ WORKING
 OFFLINE
 
 For communication gRPC
+"""
+
+"""
+TODO:
+Antwortinhalte -> Überall nur ack
+Nachrichten empfangen? -> Nur noch Heartbeat fehlt
+Hintergrundprozess Loop (Worker auf Unhealthy/Offline setzen) ->
+Entfernen wenn Offline -> 
+Unhealthy/Offline nicht in Suche zurückgeben -> Done
+
+
+
 """
