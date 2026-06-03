@@ -41,7 +41,11 @@ COPY src/ ./src/
 # ── Python-Pfad ───────────────────────────────────────────────────────────────
 # /app als Root → "from proto import ..." und "from src.dispatcher import ..."
 # funktionieren ohne relative Pfad-Manipulation.
-ENV PYTHONPATH=/app
+# /app als Root → "from proto import ..." und "from src.dispatcher import ..."
+# /app/proto zusätzlich → generierter gRPC-Code verwendet "import taskgrid_pb2"
+# (absoluter Import seit grpcio>=1.80), proto/-Verzeichnis muss direkt im sys.path
+# liegen damit dieser Import aufgelöst werden kann.
+ENV PYTHONPATH=/app:/app/proto
 
 # ── Log-Verzeichnis ───────────────────────────────────────────────────────────
 # Strukturierte Logs gemäß §13; wird per Volume in docker-compose.yml gemountet.

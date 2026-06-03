@@ -32,4 +32,4 @@ if [ -z "${WORKER_ID}" ]; then
     export WORKER_ID="worker-${TASK_TYPES}-$(hostname)"
 fi
 
-exec python worker.py
+exec python src/worker/worker.py
