@@ -22,7 +22,7 @@ def serve() -> None:
     servicer = Namensdienst()
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    taskgrid_pb2_grpc.add_DispatcherServiceServicer_to_server(servicer, server)
+    taskgrid_pb2_grpc.add_NamingServiceServicer_to_server(servicer, server)
     server.add_insecure_port(f"[::]:{port}")
     server.start()
 
