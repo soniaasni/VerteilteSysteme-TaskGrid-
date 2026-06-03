@@ -192,173 +192,347 @@ Der Timer wird abgebrochen wenn:
   \item Der Worker die Task explizit ablehnt (ACK ok=False).
 \end{itemize}
 
-\subsection{Containerisierung (Phase 3, Issues \#34--\#38)}
+\subsection{Containerisierung (Phase 3, Issues \#34--\#39)}
+\label{sec:containerisierung}
+
+\subsubsection{Verzeichnisstruktur der Container-Quellen}
+
+Alle Komponenten liegen unterhalb von \texttt{src/} im Projekt-Root.
+Jede Komponente bringt ihr eigenes \texttt{Dockerfile} mit:
+
+\begin{lstlisting}[language={},caption={Container-relevante Verzeichnisstruktur}]
+VerteilteSysteme-TaskGrid-/
+  Dockerfile                    <- Dispatcher
+  docker-compose.yml
+  requirements.txt              <- grpcio>=1.80 (alle Komponenten)
+  proto/                        <- gemeinsame gRPC-Stubs (alle Komponenten)
+    taskgrid_pb2.py
+    taskgrid_pb2_grpc.py
+  src/
+    dispatcher/                 <- Dispatcher-Quelltext
+    namensdienst/
+      Dockerfile                <- Namensdienst
+      server.py                 <- Einstiegspunkt
+      nameservice.py            <- Servicer-Implementierung
+    worker/
+      Dockerfile                <- Worker
+      entrypoint.sh             <- ENV-VAR-Mapping + WORKER_ID-Generierung
+      worker.py
+      task_handlers/            <- Handler pro Tasktyp
+    client/
+      Dockerfile                <- Client
+      client.py
+    common/                     <- gemeinsamer Logger
+\end{lstlisting}
 
 \subsubsection{Allgemeine Dockerfile-Prinzipien}
 
-Alle vier Dockerfiles folgen dem gleichen Aufbau:
+Alle Dockerfiles folgen denselben Entwurfsprinzipien:
 
 \begin{enumerate}
-  \item \textbf{Basis-Image}: \texttt{python:3.11-slim}
-        (kleines Image ohne unnötige System-Pakete).
-  \item \textbf{Layer-Cache}: \texttt{requirements.txt} wird zuerst kopiert
-        und installiert, bevor der Quelltext hinzukommt.
-        Dadurch wird \texttt{pip install} nur wiederholt wenn
-        \texttt{requirements.txt} sich geändert hat -- nicht bei jeder
-        Code-Änderung.
-  \item \textbf{PYTHONPATH=/app}: Ermöglicht absolute Imports
-        (\texttt{from proto import ...}) ohne Pfad-Manipulation.
-  \item \textbf{Umgebungsvariablen als Dokumentation}: Alle konfigurierbaren
-        Werte stehen mit ihren Defaults im Dockerfile.
-        Überschreibung erfolgt ausschließlich in docker-compose.yml.
+  \item \textbf{Basis-Image \texttt{python:3.11-slim}}: Minimales Linux-Image
+        ohne Desktop-Pakete. Reduziert Image-Größe und Angriffsfläche.
+
+  \item \textbf{Layer-Cache-Optimierung}: \texttt{requirements.txt} wird als
+        erster Schritt kopiert und installiert, der Quelltext erst danach.
+        Docker cached den \texttt{pip install}-Layer solange
+        \texttt{requirements.txt} unverändert bleibt -- auch wenn sich
+        Quelltextdateien ändern. Damit entfällt die ca. 30-sekündige
+        grpcio-Installation bei jedem Rebuild.
+
+  \item \textbf{PYTHONPATH=/app:/app/proto}: Alle Komponenten verwenden den
+        Projekt-Root als Python-Basis. \texttt{/app/proto} wird zusätzlich
+        benötigt, weil der generierte gRPC-Stub
+        (\texttt{taskgrid\_pb2\_grpc.py}) seit grpcio\,$\geq$\,1.80 einen
+        absoluten Import \texttt{import taskgrid\_pb2} (ohne Paket-Prefix)
+        enthält. Ohne \texttt{/app/proto} im Suchpfad würde dieser Import
+        zur Laufzeit mit \texttt{ModuleNotFoundError} fehlschlagen.
+
+  \item \textbf{Getrennte Build-Kontexte}: Alle Container nutzen den
+        Projekt-Root als Build-Kontext (\texttt{context: .}) und referenzieren
+        ihr Dockerfile per \texttt{dockerfile:}-Pfad. Dadurch können alle
+        Komponenten die gemeinsamen \texttt{proto/}-Stubs ohne Duplizierung
+        einbinden.
+
+  \item \textbf{Umgebungsvariablen als Dokumentation}: Jede konfigurierbare
+        Größe erscheint mit ihrem Default im Dockerfile. Überschreibungen
+        erfolgen ausschließlich in \texttt{docker-compose.yml}.
+
+  \item \textbf{Log-Verzeichnis \texttt{/app/logs}}: Wird per \texttt{RUN mkdir}
+        vorab angelegt und via Volume in docker-compose.yml gemountet
+        (Aufgabenanforderung §8: Volumes ausschließlich für Logs).
 \end{enumerate}
 
-\subsubsection{Dispatcher Dockerfile (Issue \#35)}
+\subsubsection{Dispatcher Dockerfile -- Issue \#35}
 
-Build-Kontext: Root-Verzeichnis (benötigt \texttt{proto/} und \texttt{src/}).
+Build-Kontext: Projekt-Root. Benötigt \texttt{proto/} (gRPC-Stubs) und
+\texttt{src/} (Dispatcher- und Common-Module).
 
-\begin{lstlisting}[language={},caption={Dispatcher Dockerfile (Auszug)}]
+\begin{lstlisting}[language={},caption={Dispatcher Dockerfile (src/: Dockerfile)}]
 FROM python:3.11-slim
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY proto/ ./proto/
-COPY src/ ./src/
-ENV PYTHONPATH=/app
+COPY src/   ./src/
+ENV PYTHONPATH=/app:/app/proto
 ENV DISPATCHER_PORT=50051
 ENV STATUS_HTTP_PORT=8080
 ENV NAMENSDIENST_HOST=namensdienst
 ENV NAMENSDIENST_PORT=50052
 ENV DISPATCH_TIMEOUT_SECONDS=30
 ENV MAX_RETRIES=3
-EXPOSE 50051 8080
+ENV DISPATCH_NO_WORKER_RETRY_SECONDS=2
+EXPOSE 50051
+EXPOSE 8080
 CMD ["python", "src/dispatcher/server.py"]
 \end{lstlisting}
 
-Wichtig: Keine Worker-Adressen als Umgebungsvariablen
-(Aufgabenanforderung §4.2).
+\textbf{Keine Worker-Adressen}: Gemäß Aufgabenanforderung §4.2 enthält das
+Dockerfile keine Worker-Adressen oder -Ports. Der Dispatcher ermittelt
+Worker ausschließlich dynamisch über den Namensdienst (\texttt{LOOKUP\_WORKER}).
 
-\subsubsection{Client Dockerfile (Issue \#34)}
+\subsubsection{Client Dockerfile -- Issue \#34}
 
-Build-Kontext: Root-Verzeichnis (benötigt \texttt{proto/}, \texttt{src/},
-\texttt{client/}).
+Build-Kontext: Projekt-Root. Benötigt \texttt{proto/} und \texttt{src/client/}.
 
-\begin{lstlisting}[language={},caption={Client Dockerfile (Auszug)}]
+\begin{lstlisting}[language={},caption={Client Dockerfile (src/client/Dockerfile)}]
 FROM python:3.11-slim
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY proto/ ./proto/
-COPY src/ ./src/
-COPY client/ ./client/
+COPY proto/       ./proto/
+COPY src/client/  ./src/client/
+ENV PYTHONPATH=/app:/app/proto
 ENV DISPATCHER_ADDRESS=dispatcher:50051
-ENV CLIENT_MODE=demo
-CMD ["python", "client/client.py"]
+ENV CLIENT_ID=client-1
+EXPOSE 50051
+CMD ["python", "src/client/client.py"]
 \end{lstlisting}
 
-\subsubsection{Worker Dockerfile (Issue \#36)}
+\subsubsection{Worker Dockerfile -- Issue \#36}
 
-Build-Kontext: \texttt{./worker} (vollständig eigenständig,
-eigene Proto-Stubs in \texttt{worker/generated/}).
+Build-Kontext: Projekt-Root. Benötigt \texttt{proto/} (gRPC-Stubs, geteilt
+mit Dispatcher), \texttt{src/worker/task\_handlers/} und
+\texttt{src/worker/worker.py}.
 
-\begin{lstlisting}[language={},caption={Worker Dockerfile (Auszug)}]
+\begin{lstlisting}[language={},caption={Worker Dockerfile (src/worker/Dockerfile)}]
 FROM python:3.11-slim
 WORKDIR /app
-COPY requirements.txt .
+COPY src/worker/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY generated/ ./generated/
-COPY task_handlers/ ./task_handlers/
-COPY worker.py .
-COPY entrypoint.sh .
+COPY proto/                    ./proto/
+COPY src/worker/task_handlers/ ./src/worker/task_handlers/
+COPY src/worker/worker.py      ./src/worker/worker.py
+COPY src/worker/entrypoint.sh  .
 RUN sed -i 's/\r//' entrypoint.sh && chmod +x entrypoint.sh
+ENV PYTHONPATH=/app:/app/proto
 ENV WORKER_TYPE=reverse,sum,hash,upper,wait
+ENV WORKER_HOST=worker
+ENV WORKER_PORT=50051
 ENV NAMENSDIENST_ADDRESS=namensdienst:50052
 ENV DISPATCHER_ADDRESS=dispatcher:50051
+ENV HEARTBEAT_INTERVAL_SECONDS=5
 EXPOSE 50051
 ENTRYPOINT ["./entrypoint.sh"]
 \end{lstlisting}
 
-Das \texttt{sed}-Kommando entfernt Windows-Zeilenenden (CRLF) aus dem
-Shell-Skript, da das Repo auf Windows entwickelt wurde und CRLF den
-Shebang im Linux-Container unlesbar macht.
+\textbf{sed-Kommando}: Das Repository wird auf Windows entwickelt.
+Windows-Zeilenenden (CRLF) in Shell-Skripten machen den Shebang
+(\texttt{\#!/bin/sh}) im Linux-Container unlesbar, da \texttt{\textbackslash r}
+als Teil des Interpreter-Pfads interpretiert wird.
+\texttt{sed -i 's/\textbackslash r//'} entfernt alle \texttt{\textbackslash r}-Zeichen
+bevor dem Skript Ausführungsrechte gegeben werden.
 
-\textbf{entrypoint.sh -- ENV-VAR-Mapping}:
-Die Issue-Spezifikation und \texttt{worker.py} verwenden unterschiedliche
-Variablennamen. \texttt{entrypoint.sh} übersetzt:
+\textbf{entrypoint.sh -- ENV-VAR-Mapping und WORKER\_ID-Generierung}:
+Die Issue-Spezifikation (\#36) und \texttt{worker.py} nutzen unterschiedliche
+Variablennamen. Das Entrypoint-Skript übersetzt zur Laufzeit:
 
-\begin{lstlisting}[language=bash,caption={entrypoint.sh -- ENV-VAR-Mapping}]
+\begin{lstlisting}[language=bash,caption={src/worker/entrypoint.sh}]
+#!/bin/sh
+# Issue-Namen -> worker.py-interne Namen
 export TASK_TYPES="${WORKER_TYPE:-${TASK_TYPES:-reverse}}"
-export NAMING_SERVICE_ADDRESS="${NAMENSDIENST_ADDRESS:-...}"
+export NAMING_SERVICE_ADDRESS="${NAMENSDIENST_ADDRESS:-namensdienst:50052}"
 export HEARTBEAT_INTERVAL="${HEARTBEAT_INTERVAL_SECONDS:-5}"
+
+# Eindeutige ID pro Container-Instanz (Docker setzt hostname = Container-ID-Prefix)
 if [ -z "${WORKER_ID}" ]; then
     export WORKER_ID="worker-${TASK_TYPES}-$(hostname)"
 fi
-exec python worker.py
+
+exec python src/worker/worker.py
 \end{lstlisting}
 
-Die \texttt{WORKER\_ID}-Generierung via \texttt{hostname} stellt sicher,
-dass bei \texttt{--scale worker-sum=3} alle drei Instanzen
-unterschiedliche IDs erhalten.
+Die \texttt{WORKER\_ID}-Generierung via \texttt{hostname} garantiert, dass
+bei \texttt{docker compose up --scale worker-sum=3} alle drei Instanzen
+unterschiedliche IDs beim Namensdienst registrieren.
+\texttt{exec} ersetzt den Shell-Prozess durch Python, sodass
+SIGTERM-Signale (Docker-Stop) direkt beim Worker ankommen.
 
-\subsubsection{Namensdienst Dockerfile (Issue \#37)}
+\subsubsection{Namensdienst Dockerfile -- Issue \#37}
 
-Build-Kontext: \texttt{./nameservice}.
+Build-Kontext: Projekt-Root. Benötigt \texttt{proto/},
+\texttt{src/namensdienst/} und \texttt{src/common/} (Logger).
 
-\begin{lstlisting}[language={},caption={Namensdienst Dockerfile (Auszug)}]
+\begin{lstlisting}[language={},caption={Namensdienst Dockerfile (src/namensdienst/Dockerfile)}]
 FROM python:3.11-slim
 WORKDIR /app
-COPY requirements.txt .
+COPY src/namensdienst/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY nameservice.py .
-ENV NAMENSDIENST_PORT=6000
+COPY proto/             ./proto/
+COPY src/namensdienst/  ./src/namensdienst/
+COPY src/common/        ./src/common/
+ENV PYTHONPATH=/app:/app/proto
+ENV NAMESERVICE_PORT=50052
 ENV HEARTBEAT_TIMEOUT_SECONDS=15
 ENV HEARTBEAT_CHECK_INTERVAL_SECONDS=5
-EXPOSE 6000
-CMD ["python", "nameservice.py"]
+EXPOSE 50052
+CMD ["python", "src/namensdienst/server.py"]
 \end{lstlisting}
 
-Der Standardport ist 6000 (gemäß Issue-Spezifikation).
-In docker-compose.yml wird er durch \texttt{NAMENSDIENST\_PORT=50052}
-überschrieben.
+Der Einstiegspunkt ist \texttt{server.py}, der den gRPC-Server startet und
+die \texttt{Namensdienst}-Klasse aus \texttt{nameservice.py} als Servicer
+registriert.
 
-\subsubsection{docker-compose.yml (Issue \#38)}
+\subsubsection{docker-compose.yml -- Issue \#38}
 
-Die zentrale Orchestrierungsdatei steuert das Gesamtsystem:
+Die Orchestrierungsdatei steuert alle acht Container-Services:
 
 \begin{table}[H]
 \centering
-\begin{tabular}{lll}
+\begin{tabular}{llll}
 \toprule
-\textbf{Merkmal} & \textbf{Umsetzung} & \textbf{Issue} \\
+\textbf{Service} & \textbf{Dockerfile} & \textbf{Port (extern)} & \textbf{Zweck} \\
 \midrule
-Startreihenfolge    & \texttt{depends\_on: condition: service\_healthy} & \#38 \\
-Health Checks       & TCP-Port-Sonde via Python (kein Extra-Tool) & \#38 \\
-Typspezifische Worker & Separate Services \texttt{worker-sum} etc. & \#38 \\
-Skalierung          & \texttt{--scale worker-sum=N} (kein \texttt{container\_name}) & \#38 \\
-Volumes             & Nur \texttt{logs} (kein Task/Ergebnis-Volume) & §8 \\
-Netzwerk            & Internes Bridge-Netzwerk \texttt{taskgrid} & §11 \\
-One-Shot Client     & \texttt{restart: "no"} & §11 \\
+\texttt{namensdienst} & \texttt{src/namensdienst/Dockerfile} & 50052 & Service Discovery \\
+\texttt{dispatcher}   & \texttt{Dockerfile}                  & 50051, 8080 & Task-Verwaltung \\
+\texttt{worker-reverse} & \texttt{src/worker/Dockerfile}     & -- & Tasktyp reverse \\
+\texttt{worker-sum}     & \texttt{src/worker/Dockerfile}     & -- & Tasktyp sum \\
+\texttt{worker-hash}    & \texttt{src/worker/Dockerfile}     & -- & Tasktyp hash \\
+\texttt{worker-upper}   & \texttt{src/worker/Dockerfile}     & -- & Tasktyp upper \\
+\texttt{worker-wait}    & \texttt{src/worker/Dockerfile}     & -- & Tasktyp wait \\
+\texttt{client}         & \texttt{src/client/Dockerfile}     & -- & One-Shot Demo \\
 \bottomrule
 \end{tabular}
-\caption{docker-compose.yml -- Implementierte Anforderungen}
+\caption{docker-compose.yml -- Services im Überblick}
 \end{table}
 
-\textbf{Health Check -- Implementierungsdetail}:
-Da \texttt{python:3.11-slim} kein \texttt{netcat} oder \texttt{curl} enthält,
-wurde der Health Check als Python-Einzeiler umgesetzt:
+\textbf{Implementierte Anforderungen}:
 
-\begin{lstlisting}[language=yaml,caption={Health Check in docker-compose.yml}]
+\begin{table}[H]
+\centering
+\begin{tabular}{p{4.5cm}p{7cm}l}
+\toprule
+\textbf{Anforderung} & \textbf{Umsetzung} & \textbf{Ref.} \\
+\midrule
+Startreihenfolge &
+  \texttt{depends\_on: condition: service\_healthy} -- Worker starten erst
+  wenn Namensdienst \emph{und} Dispatcher healthy sind &
+  \#38 \\
+Health Checks &
+  TCP-Port-Sonde als Python-Einzeiler (kein \texttt{netcat}/\texttt{curl}
+  in slim-Image nötig) &
+  \#38 \\
+Typspezifische Worker &
+  Separate Services \texttt{worker-sum}, \texttt{worker-reverse} etc.,
+  jeweils mit \texttt{WORKER\_TYPE}-ENV &
+  \#38 \\
+Skalierung &
+  Kein \texttt{container\_name} bei Workers $\Rightarrow$
+  \texttt{docker compose up --scale worker-sum=3} möglich &
+  \#39 \\
+Volumes &
+  Ausschließlich \texttt{logs}-Volume (kein gemeinsames Volume
+  für Task-/Ergebnisdaten) &
+  §8 \\
+Internes Netzwerk &
+  Bridge-Netzwerk \texttt{taskgrid}; Worker-Ports nicht nach außen
+  exponiert &
+  §11 \\
+One-Shot Client &
+  \texttt{restart: "no"} -- Client beendet sich nach Demo &
+  §11 \\
+Konfiguration &
+  Ausschließlich Umgebungsvariablen, keine hartcodierten Adressen &
+  §4.2 \\
+\bottomrule
+\end{tabular}
+\caption{docker-compose.yml -- Erfüllte Anforderungen}
+\end{table}
+
+\textbf{Startreihenfolge}:
+
+\begin{lstlisting}[language={},caption={Startabhängigkeiten in docker-compose.yml}]
+namensdienst  --[healthy]--> dispatcher
+                             dispatcher  --[healthy]--> worker-*
+                                                        worker-*  -->  (client)
+\end{lstlisting}
+
+\textbf{Health Check -- Implementierungsdetail}:
+\texttt{python:3.11-slim} enthält kein \texttt{netcat} oder \texttt{curl}.
+Stattdessen wird ein Python-Einzeiler als Health Check eingesetzt:
+
+\begin{lstlisting}[language=yaml,caption={Health Check (Dispatcher, Port 50051)}]
 healthcheck:
   test: ["CMD", "python", "-c",
          "import socket; s=socket.socket(); s.settimeout(2);
-          s.connect(('localhost',50051)); s.close()"]
+          s.connect(('localhost', 50051)); s.close()"]
   interval: 5s
   timeout: 3s
   retries: 12
   start_period: 10s
 \end{lstlisting}
 
-Der Health Check prüft ob der gRPC-Port tatsächlich eine TCP-Verbindung
-akzeptiert -- nicht nur ob der Python-Prozess gestartet ist.
-Dies stellt sicher, dass Worker erst starten wenn der Dispatcher
-wirklich bereit ist.
+Dieser Check prüft, ob der gRPC-Port eine TCP-Verbindung akzeptiert --
+nicht nur ob der Python-Prozess gestartet wurde.
+\texttt{start\_period: 10s} räumt dem Dispatcher Zeit ein, um seinen
+eigenen Startup (Verbindung zum Namensdienst, Thread-Start) abzuschließen,
+bevor fehlgeschlagene Checks als Fehler zählen.
+
+\textbf{Skalierung (Issue \#39)}:
+
+Einzelne Worker-Typen können horizontal skaliert werden ohne
+Konfigurationsänderungen:
+
+\begin{lstlisting}[language=bash,caption={Skalierungsbeispiele}]
+# Drei parallele sum-Worker starten
+docker compose up --scale worker-sum=3
+
+# Mehrere Typen gleichzeitig skalieren
+docker compose up --scale worker-reverse=2 --scale worker-hash=2
+
+# Gesamtsystem starten (je ein Worker pro Typ)
+docker compose up
+\end{lstlisting}
+
+Die Skalierung funktioniert, weil:
+\begin{itemize}
+  \item Worker-Services haben kein \texttt{container\_name} -- Docker vergibt
+        automatisch eindeutige Namen.
+  \item \texttt{entrypoint.sh} generiert \texttt{WORKER\_ID} via
+        \texttt{hostname} (= Container-ID-Prefix) -- keine Namenskollisionen
+        bei mehreren Instanzen desselben Typs.
+  \item Docker DNS löst den Service-Namen (z.\,B. \texttt{worker-sum}) per
+        Round-Robin auf alle laufenden Instanzen auf. Alle registrieren sich
+        beim Namensdienst mit demselben \texttt{WORKER\_HOST}, der Dispatcher
+        erhält sie über \texttt{LOOKUP\_WORKER} zurück.
+\end{itemize}
+
+\textbf{Kommunikationsports im Netzwerk \texttt{taskgrid}}:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Verbindung} & \textbf{Port} & \textbf{Protokoll} \\
+\midrule
+Client $\rightarrow$ Dispatcher & 50051 & gRPC \\
+Dispatcher $\rightarrow$ Namensdienst & 50052 & gRPC \\
+Worker $\rightarrow$ Namensdienst & 50052 & gRPC \\
+Dispatcher $\rightarrow$ Worker & 50051 & gRPC \\
+Worker $\rightarrow$ Dispatcher & 50051 & gRPC \\
+Monitoring $\rightarrow$ Dispatcher & 8080 & HTTP \\
+\bottomrule
+\end{tabular}
+\caption{Interne Kommunikationsports im Docker-Netzwerk}
+\end{table}
