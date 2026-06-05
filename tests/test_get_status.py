@@ -174,7 +174,7 @@ def test_grpc_get_status_returns_counts():
     ctx = MagicMock()
     resp = servicer.GetStatus(req, ctx)
 
-    assert resp.queued_tasks >= 1
+    assert resp.payload.queued_tasks >= 1
     ctx.set_code.assert_not_called()
 
 
@@ -191,5 +191,5 @@ def test_grpc_get_status_details_is_valid_json():
     req = taskgrid_pb2.StatusRequest(sender="monitor")
     resp = servicer.GetStatus(req, MagicMock())
 
-    parsed = json.loads(resp.details)
+    parsed = json.loads(resp.payload.details)
     assert "abgeschlossene_tasks" in parsed

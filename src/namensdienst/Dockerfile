@@ -2,14 +2,14 @@
 # TaskGrid+ — Namensdienst Dockerfile
 # Issue #37 (soniaasni)
 #
-# Build-Kontext: ./nameservice
-#   docker-compose.yml: build: { context: ./nameservice }
+# Build-Kontext: Projekt-Root (context: .)
+#   docker-compose.yml: build: { context: ., dockerfile: src/namensdienst/Dockerfile }
 #
-# Der Namensdienst ist vollständig eigenständig — alle benötigten Dateien
-# liegen im nameservice/-Verzeichnis:
-#   requirements.txt       — grpcio Runtime-Abhängigkeit (>=1.80)
-#   nameservice.py         — Einstiegspunkt (Service Discovery)
-#   generated/             — gRPC-Stubs (werden bei Implementierung ergänzt)
+# Der Namensdienst braucht aus dem Root:
+#   src/namensdienst/requirements.txt — grpcio Runtime-Abhängigkeit (>=1.80)
+#   proto/                             — generierte gRPC-Stubs (shared)
+#   src/namensdienst/                  — Service-Discovery-Implementierung
+#   src/common/                        — Logger (§13) und Protocol-Typen
 #
 # Verhalten (gemäß Aufgabenstellung):
 #   - Worker-Registrierungen werden ausschließlich im Arbeitsspeicher gehalten
@@ -29,19 +29,23 @@ WORKDIR /app
 # ── Abhängigkeiten installieren ───────────────────────────────────────────────
 # requirements.txt zuerst → Docker-Layer-Cache:
 # grpcio-Installation wird nur wiederholt wenn requirements.txt geändert wurde.
-COPY requirements.txt .
+COPY src/namensdienst/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # ── Quelltext kopieren ────────────────────────────────────────────────────────
-# Namensdienst-Implementierung
-COPY nameservice.py .
+# Proto-Stubs (shared zwischen allen Komponenten)
+COPY proto/ ./proto/
 
-# Generierte gRPC-Stubs (werden bei vollständiger Implementierung ergänzt)
-# COPY generated/ ./generated/
+# Namensdienst-Implementierung + gemeinsame Module
+COPY src/namensdienst/ ./src/namensdienst/
+COPY src/common/       ./src/common/
 
 # ── Python-Pfad ───────────────────────────────────────────────────────────────
-# /app als Root → "from generated import ..." funktioniert ohne Pfad-Manipulation.
-ENV PYTHONPATH=/app
+# /app als Root → "from proto import ..." und "from src.namensdienst import ..." funktionieren.
+# /app/proto zusätzlich → generierter gRPC-Code verwendet "import taskgrid_pb2"
+# (absoluter Import seit grpcio>=1.80), proto/-Verzeichnis muss direkt
+# im sys.path liegen damit dieser Import aufgelöst werden kann.
+ENV PYTHONPATH=/app:/app/proto
 
 # ── Log-Verzeichnis ───────────────────────────────────────────────────────────
 # Strukturierte Logs gemäß §13; per Volume in docker-compose.yml montierbar.
@@ -50,8 +54,7 @@ RUN mkdir -p /app/logs
 
 # ── Konfiguration (Umgebungsvariablen, alle via docker-compose überschreibbar) ─
 #
-# NAMENSDIENST_PORT              : gRPC-Port des Namensdiensts
-#                                  (docker-compose überschreibt auf 50052)
+# NAMESERVICE_PORT               : gRPC-Port des Namensdiensts (server.py)
 # HEARTBEAT_TIMEOUT_SECONDS      : Zeitspanne ohne Heartbeat, nach der ein Worker
 #                                  als inaktiv gilt und aus der Registry entfernt wird
 # HEARTBEAT_CHECK_INTERVAL_SECONDS: Wie oft der Namensdienst die Registry auf
@@ -61,14 +64,14 @@ RUN mkdir -p /app/logs
 # Nach Container-Neustart ist die Registry leer — Worker re-registrieren sich
 # automatisch über ihren eigenen Startup (§4.3).
 
-ENV NAMENSDIENST_PORT=6000
+ENV NAMESERVICE_PORT=50052
 ENV HEARTBEAT_TIMEOUT_SECONDS=15
 ENV HEARTBEAT_CHECK_INTERVAL_SECONDS=5
 
 # ── Port exponieren ───────────────────────────────────────────────────────────
 # EXPOSE dokumentiert den gRPC-Port; tatsächliches Mapping erfolgt in
 # docker-compose.yml (ports: ["50052:50052"]).
-EXPOSE 6000
+EXPOSE 50052
 
 # ── Start ─────────────────────────────────────────────────────────────────────
-CMD ["python", "nameservice.py"]
+CMD ["python", "src/namensdienst/server.py"]

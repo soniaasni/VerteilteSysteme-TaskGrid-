@@ -14,6 +14,7 @@ Proto-Kompatibilität: Elena (worker/proto/taskgrid.proto)
 
 from __future__ import annotations
 
+import time
 import grpc
 
 from proto import taskgrid_pb2, taskgrid_pb2_grpc
@@ -69,34 +70,36 @@ class DispatcherServicer(taskgrid_pb2_grpc.DispatcherServiceServicer):
         Eingabe:  PostTaskRequest(request_id, task_type, task_payload, sender)
         Rückgabe: TaskResponse(task_id, status) oder gRPC-Fehlercode
         """
-        rid = request.request_id
+        rid       = request.request_id
+        task_type = request.payload.task_type
+        payload   = request.payload.task_payload
 
-        if not request.task_type:
+        if not task_type:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
             context.set_details("task_type darf nicht leer sein")
             log_event(logger, "warning", "POST_TASK_rejected",
                       request_id=rid, reason="missing_task_type")
-            return taskgrid_pb2.TaskResponse()
+            return taskgrid_pb2.PostTaskResponse()
 
-        if len(request.task_type) > MAX_TYPE_LEN:
+        if len(task_type) > MAX_TYPE_LEN:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
             context.set_details(f"task_type zu lang (max {MAX_TYPE_LEN} Zeichen)")
             log_event(logger, "warning", "POST_TASK_rejected",
                       request_id=rid, reason="task_type_too_long")
-            return taskgrid_pb2.TaskResponse()
+            return taskgrid_pb2.PostTaskResponse()
 
-        if len(request.task_payload) > MAX_PAYLOAD_LEN:
+        if len(payload) > MAX_PAYLOAD_LEN:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
             context.set_details(f"payload zu groß (max {MAX_PAYLOAD_LEN} Zeichen)")
             log_event(logger, "warning", "POST_TASK_rejected",
                       request_id=rid, reason="payload_too_large")
-            return taskgrid_pb2.TaskResponse()
+            return taskgrid_pb2.PostTaskResponse()
 
         task_id = new_task_id()
         task = Task(
             task_id=task_id,
-            task_type=request.task_type,
-            payload=request.task_payload,
+            task_type=task_type,
+            payload=payload,
             status=TaskState.QUEUED,
         )
 
@@ -106,14 +109,21 @@ class DispatcherServicer(taskgrid_pb2_grpc.DispatcherServiceServicer):
         log_event(logger, "info", "POST_TASK_accepted",
                   request_id=rid,
                   task_id=task_id,
-                  task_type=request.task_type,
+                  task_type=task_type,
                   sender=request.sender,
                   status=TaskState.QUEUED.value,
                   queue_size=self._queue.size())
 
-        return taskgrid_pb2.TaskResponse(
-            task_id=int(task_id),      # int32 für Proto-Kompatibilität
-            status=TaskState.QUEUED.value,
+        return taskgrid_pb2.PostTaskResponse(
+            message_type="POST_TASK_RESPONSE",
+            request_id=rid,
+            timestamp=int(time.time()),
+            sender="dispatcher",
+            payload=taskgrid_pb2.PostTaskResponse.Payload(
+                success=True,
+                task_id=int(task_id),
+                status=TaskState.QUEUED.value,
+            ),
         )
 
     # ── Issue #17 ─────────────────────────────────────────────────────────────
@@ -125,7 +135,7 @@ class DispatcherServicer(taskgrid_pb2_grpc.DispatcherServiceServicer):
         Rückgabe: ResultResponse(task_id, status, result)
         """
         rid     = request.request_id
-        task_id = str(request.task_id)   # int32 → string intern
+        task_id = str(request.payload.task_id)   # int32 → string intern
 
         task = self._store.get(task_id)
         if task is None:
@@ -133,16 +143,33 @@ class DispatcherServicer(taskgrid_pb2_grpc.DispatcherServiceServicer):
                       request_id=rid, task_id=task_id, sender=request.sender)
             context.set_code(grpc.StatusCode.NOT_FOUND)
             context.set_details(f"Task {task_id} nicht gefunden")
-            return taskgrid_pb2.ResultResponse(task_id=request.task_id, status="NOT_FOUND")
+            return taskgrid_pb2.ResultResponse(
+                message_type="RESULT_RESPONSE",
+                request_id=rid,
+                timestamp=int(time.time()),
+                sender="dispatcher",
+                payload=taskgrid_pb2.ResultResponse.Payload(
+                    found=False,
+                    task_id=request.payload.task_id,
+                    status="NOT_FOUND",
+                ),
+            )
 
         log_event(logger, "info", "GET_RESULT_queried",
                   request_id=rid, task_id=task_id,
                   status=task.status.value, sender=request.sender)
 
         return taskgrid_pb2.ResultResponse(
-            task_id=int(task_id),
-            status=task.status.value,
-            result=task.result,
+            message_type="RESULT_RESPONSE",
+            request_id=rid,
+            timestamp=int(time.time()),
+            sender="dispatcher",
+            payload=taskgrid_pb2.ResultResponse.Payload(
+                found=True,
+                task_id=int(task_id),
+                status=task.status.value,
+                result=task.result or "",
+            ),
         )
 
     # ── Issue #20 ─────────────────────────────────────────────────────────────
@@ -153,15 +180,29 @@ class DispatcherServicer(taskgrid_pb2_grpc.DispatcherServiceServicer):
         Gibt Monitoring-Überblick zurück. Vollständige Daten über HTTP /status.
         """
         if self._collector is None:
-            return taskgrid_pb2.StatusResponse(details="{}")
+            return taskgrid_pb2.StatusResponse(
+                payload=taskgrid_pb2.StatusResponse.Payload(details="{}"),
+            )
 
-        data = self._collector.get_status()
         import json
+        data = self._collector.get_status()
         log_event(logger, "info", "GET_STATUS_queried", sender=request.sender)
         return taskgrid_pb2.StatusResponse(
-            queued_tasks=data["offene_tasks"] + data["laufende_tasks"],
-            active_workers=data["aktive_worker"],
-            details=json.dumps(data, ensure_ascii=False),
+            message_type="STATUS_RESPONSE",
+            request_id=request.request_id,
+            timestamp=int(time.time()),
+            sender="dispatcher",
+            payload=taskgrid_pb2.StatusResponse.Payload(
+                queued_tasks=data["offene_tasks"],
+                running_tasks=data["laufende_tasks"],
+                active_workers=data["aktive_worker"],
+                completed_tasks=data["abgeschlossene_tasks"],
+                failed_tasks=data["fehlgeschlagene_tasks"],
+                timeout_count=data["anzahl_timeouts"],
+                retry_count=data["anzahl_retries"],
+                average_processing_time_ms=data["durchschnittliche_bearbeitungszeit_ms"],
+                details=json.dumps(data, ensure_ascii=False),
+            ),
         )
 
     # ── Issue #16 (umbenannt: ReturnResult, Elena-kompatibel) ─────────────────
@@ -173,35 +214,41 @@ class DispatcherServicer(taskgrid_pb2_grpc.DispatcherServiceServicer):
         Terminale Tasks werden ignoriert (Idempotenz §5).
         task_id kommt als int32, wird intern als string gespeichert.
         """
-        rid     = request.request_id
-        task_id = str(request.task_id)   # int32 → string
+        rid       = request.request_id
+        task_id   = str(request.payload.task_id)    # int32 → string
+        worker_id = request.payload.worker_id
+        status    = request.payload.status
 
         task = self._store.get(task_id)
         if task is None:
             log_event(logger, "warning", "RESULT_RETURN_unknown_task",
-                      request_id=rid, task_id=task_id, worker_id=request.worker_id)
-            return taskgrid_pb2.Ack(success=False, message="unknown task_id")
+                      request_id=rid, task_id=task_id, worker_id=worker_id)
+            return taskgrid_pb2.Ack(
+                payload=taskgrid_pb2.Ack.Payload(success=False, message="unknown task_id"),
+            )
 
         if is_terminal(task):
             log_event(logger, "warning", "RESULT_RETURN_late",
                       request_id=rid, task_id=task_id,
-                      worker_id=request.worker_id, status=task.status.value)
-            return taskgrid_pb2.Ack(success=True, message="already terminal")
+                      worker_id=worker_id, status=task.status.value)
+            return taskgrid_pb2.Ack(
+                payload=taskgrid_pb2.Ack.Payload(success=True, message="already terminal"),
+            )
 
         if self._dispatch_loop is not None:
             self._dispatch_loop.cancel_timeout(task_id)
 
-        # Elena: status="COMPLETED"/"FAILED" statt success=bool
-        new_state = TaskState.COMPLETED if request.status == "COMPLETED" else TaskState.FAILED
+        new_state = TaskState.COMPLETED if status == "COMPLETED" else TaskState.FAILED
         try:
             transition(task, new_state)
         except InvalidTransitionError as e:
             log_event(logger, "error", "RESULT_RETURN_invalid_transition",
                       request_id=rid, task_id=task_id, error=str(e))
-            return taskgrid_pb2.Ack(success=False, message=str(e))
+            return taskgrid_pb2.Ack(
+                payload=taskgrid_pb2.Ack.Payload(success=False, message=str(e)),
+            )
 
-        # Elena: error statt error_msg
-        task.result = request.result if request.status == "COMPLETED" else request.error
+        task.result = request.payload.result if status == "COMPLETED" else request.payload.error
         self._store.update(task)
 
         duration_ms = (
@@ -211,8 +258,14 @@ class DispatcherServicer(taskgrid_pb2_grpc.DispatcherServiceServicer):
         log_event(logger, "info", "RESULT_RETURN_stored",
                   request_id=rid,
                   task_id=task_id,
-                  worker_id=request.worker_id,
+                  worker_id=worker_id,
                   status=task.status.value,
                   duration_ms=duration_ms)
 
-        return taskgrid_pb2.Ack(success=True)
+        return taskgrid_pb2.Ack(
+            message_type="ACK",
+            request_id=rid,
+            timestamp=int(time.time()),
+            sender="dispatcher",
+            payload=taskgrid_pb2.Ack.Payload(success=True),
+        )

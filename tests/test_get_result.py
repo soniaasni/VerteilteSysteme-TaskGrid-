@@ -27,8 +27,8 @@ def _make_servicer():
 def _result_request(task_id=1, sender="client-1", request_id="r1"):
     return taskgrid_pb2.GetResultRequest(
         request_id=request_id,
-        task_id=task_id,
         sender=sender,
+        payload=taskgrid_pb2.GetResultRequest.Payload(task_id=task_id),
     )
 
 
@@ -48,9 +48,9 @@ def test_completed_returns_result_and_status():
     ctx = MagicMock()
     resp = servicer.GetResult(_result_request(), ctx)
 
-    assert resp.task_id == 1
-    assert resp.status == TaskState.COMPLETED.value
-    assert resp.result == "42"
+    assert resp.payload.task_id == 1
+    assert resp.payload.status == TaskState.COMPLETED.value
+    assert resp.payload.result == "42"
     ctx.set_code.assert_not_called()
 
 
@@ -61,8 +61,8 @@ def test_failed_returns_error_in_result():
     ctx = MagicMock()
     resp = servicer.GetResult(_result_request(), ctx)
 
-    assert resp.status == TaskState.FAILED.value
-    assert resp.result == "worker_crashed"
+    assert resp.payload.status == TaskState.FAILED.value
+    assert resp.payload.result == "worker_crashed"
 
 
 def test_queued_returns_status_empty_result():
@@ -72,8 +72,8 @@ def test_queued_returns_status_empty_result():
     ctx = MagicMock()
     resp = servicer.GetResult(_result_request(), ctx)
 
-    assert resp.status == TaskState.QUEUED.value
-    assert resp.result == ""
+    assert resp.payload.status == TaskState.QUEUED.value
+    assert resp.payload.result == ""
     ctx.set_code.assert_not_called()
 
 
@@ -84,8 +84,8 @@ def test_processing_returns_status_empty_result():
     ctx = MagicMock()
     resp = servicer.GetResult(_result_request(), ctx)
 
-    assert resp.status == TaskState.PROCESSING.value
-    assert resp.result == ""
+    assert resp.payload.status == TaskState.PROCESSING.value
+    assert resp.payload.result == ""
 
 
 def test_dispatched_returns_status_empty_result():
@@ -95,8 +95,8 @@ def test_dispatched_returns_status_empty_result():
     ctx = MagicMock()
     resp = servicer.GetResult(_result_request(), ctx)
 
-    assert resp.status == TaskState.DISPATCHED.value
-    assert resp.result == ""
+    assert resp.payload.status == TaskState.DISPATCHED.value
+    assert resp.payload.result == ""
 
 
 def test_unknown_task_id_returns_not_found():
@@ -106,7 +106,7 @@ def test_unknown_task_id_returns_not_found():
     resp = servicer.GetResult(_result_request(task_id=999), ctx)
 
     ctx.set_code.assert_called_once_with(grpc.StatusCode.NOT_FOUND)
-    assert resp.status == "NOT_FOUND"
+    assert resp.payload.status == "NOT_FOUND"
 
 
 def test_unknown_task_id_sets_details():
@@ -126,4 +126,4 @@ def test_task_id_in_response():
     ctx = MagicMock()
     resp = servicer.GetResult(_result_request(task_id=1), ctx)
 
-    assert resp.task_id == 1
+    assert resp.payload.task_id == 1

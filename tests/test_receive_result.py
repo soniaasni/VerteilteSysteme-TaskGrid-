@@ -34,11 +34,14 @@ def _result_request(task_id=1, status="COMPLETED", result="3", error="",
                     worker_id="w1", request_id="r1"):
     return taskgrid_pb2.ResultRequest(
         request_id=request_id,
-        task_id=task_id,
-        worker_id=worker_id,
-        result=result,
-        status=status,
-        error=error,
+        sender=worker_id,
+        payload=taskgrid_pb2.ResultRequest.Payload(
+            task_id=task_id,
+            worker_id=worker_id,
+            status=status,
+            result=result,
+            error=error,
+        ),
     )
 
 
@@ -51,7 +54,7 @@ def test_success_sets_completed():
 
     ack = servicer.ReturnResult(_result_request(result="3"), MagicMock())
 
-    assert ack.success is True
+    assert ack.payload.success is True
     updated = store.get("1")
     assert updated.status == TaskState.COMPLETED
     assert updated.result == "3"
@@ -67,7 +70,7 @@ def test_failure_sets_failed():
         _result_request(status="FAILED", error="worker_error"), MagicMock()
     )
 
-    assert ack.success is True
+    assert ack.payload.success is True
     updated = store.get("1")
     assert updated.status == TaskState.FAILED
     assert updated.result == "worker_error"
@@ -78,8 +81,8 @@ def test_unknown_task_id_returns_nack():
 
     ack = servicer.ReturnResult(_result_request(task_id=999), MagicMock())
 
-    assert ack.success is False
-    assert "unknown" in ack.message
+    assert ack.payload.success is False
+    assert "unknown" in ack.payload.message
 
 
 def test_already_completed_is_ignored():
@@ -91,7 +94,7 @@ def test_already_completed_is_ignored():
 
     ack = servicer.ReturnResult(_result_request(result="overwrite"), MagicMock())
 
-    assert ack.success is True
+    assert ack.payload.success is True
     assert store.get("1").result == "original"   # unverändert
 
 
@@ -103,7 +106,7 @@ def test_already_failed_is_ignored():
 
     ack = servicer.ReturnResult(_result_request(), MagicMock())
 
-    assert ack.success is True
+    assert ack.payload.success is True
     updated = store.get("1")
     assert updated.status == TaskState.FAILED
 
@@ -149,5 +152,5 @@ def test_multiple_results_only_first_counts():
     servicer.ReturnResult(_result_request(result="first"), MagicMock())
     ack2 = servicer.ReturnResult(_result_request(result="second"), MagicMock())
 
-    assert ack2.success is True
+    assert ack2.payload.success is True
     assert store.get("1").result == "first"

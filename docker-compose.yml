@@ -37,12 +37,13 @@ services:
   # re-registrieren sich automatisch beim eigenen Start (§4.3).
   namensdienst:
     build:
-      context: ./nameservice
+      context: .
+      dockerfile: src/namensdienst/Dockerfile
     container_name: namensdienst
     ports:
       - "50052:50052"               # gRPC nach außen (lokale Tests, Monitoring)
     environment:
-      - NAMENSDIENST_PORT=50052
+      - NAMESERVICE_PORT=50052          # gelesen von src/namensdienst/server.py
       - HEARTBEAT_TIMEOUT_SECONDS=15
       - HEARTBEAT_CHECK_INTERVAL_SECONDS=5
     networks:
@@ -106,7 +107,8 @@ services:
 
   worker-sum:
     build:
-      context: ./worker
+      context: .
+      dockerfile: src/worker/Dockerfile
     environment:
       - WORKER_TYPE=sum
       - WORKER_HOST=worker-sum
@@ -124,7 +126,8 @@ services:
 
   worker-reverse:
     build:
-      context: ./worker
+      context: .
+      dockerfile: src/worker/Dockerfile
     environment:
       - WORKER_TYPE=reverse
       - WORKER_HOST=worker-reverse
@@ -142,7 +145,8 @@ services:
 
   worker-hash:
     build:
-      context: ./worker
+      context: .
+      dockerfile: src/worker/Dockerfile
     environment:
       - WORKER_TYPE=hash
       - WORKER_HOST=worker-hash
@@ -160,7 +164,8 @@ services:
 
   worker-upper:
     build:
-      context: ./worker
+      context: .
+      dockerfile: src/worker/Dockerfile
     environment:
       - WORKER_TYPE=upper
       - WORKER_HOST=worker-upper
@@ -178,7 +183,8 @@ services:
 
   worker-wait:
     build:
-      context: ./worker
+      context: .
+      dockerfile: src/worker/Dockerfile
     environment:
       - WORKER_TYPE=wait
       - WORKER_HOST=worker-wait
@@ -196,25 +202,16 @@ services:
 
   # ── Client ───────────────────────────────────────────────────────────────────
   # Eigener Container gemäß §11 (Pflichtbestandteil).
-  # Demo-Modus: sendet je einen Task aller Pflichttypen, wartet auf Ergebnisse
-  # und beendet sich (restart: "no" → One-Shot-Container).
-  #
-  # Andere Modi via Umgebungsvariable:
-  #   CLIENT_MODE=send   + TASK_TYPE=reverse + TASK_PAYLOAD="hello world"
-  #   CLIENT_MODE=result + TASK_ID=42
+  # Betriebsmodus:
+  #   python src/client/client.py send <task_type> <payload>
+  #   python src/client/client.py result <task_id>
   client:
     build:
       context: .
-      dockerfile: client/Dockerfile
+      dockerfile: src/client/Dockerfile
     environment:
       - DISPATCHER_ADDRESS=dispatcher:50051
       - CLIENT_ID=client-demo
-      - CLIENT_MODE=demo
-      - POLL_INTERVAL_SECONDS=1.0
-      - POLL_TIMEOUT_SECONDS=60.0
-      # Verbindungsaufbau: wartet bis Dispatcher tatsächlich bereit ist
-      - CONNECT_RETRIES=20
-      - CONNECT_RETRY_DELAY_SECONDS=3.0
       - LOG_DIR=/app/logs
     depends_on:
       dispatcher:
