@@ -7,8 +7,8 @@ from concurrent import futures
 import signal
 import sys
 
-from src.worker import taskgrid_pb2
-from src.worker import taskgrid_pb2_grpc
+from proto import taskgrid_pb2
+from proto import taskgrid_pb2_grpc
 
 from src.worker.task_handlers import hash_handler, reverse, sum_handler, upper
 from src.worker.task_handlers import wait_handler
@@ -87,7 +87,7 @@ def register_worker(max_retries=5):
                     )
                     )
 
-                if response.success:
+                if response.payload.success:
 
                     logging.info(
                         f"worker_id={WORKER_ID} "
@@ -101,7 +101,7 @@ def register_worker(max_retries=5):
                     f"worker_id={WORKER_ID} "
                     f"event=REGISTER_REJECTED "
                     f"attempt={attempt} "
-                    f"message='{response.message}'"
+                    f"message='{response.payload.message}'"
                 )
 
         except Exception as error:
@@ -189,10 +189,10 @@ def process_task(task):
         )
     if task.paylaod.task_type not in HANDLERS:
         raise TaskProcessingError(
-            f"Kein Handler für Tasktyp '{task.paylaod.task_type}' implementiert"
+            f"Kein Handler für Tasktyp '{task.payload.task_type}' implementiert"
         )
     try:
-        return HANDLERS[task.paylaod.task_type](task.task_payload)
+        return HANDLERS[task.payload.task_type](task.payload.task_payload)
 
     except TaskProcessingError:
         raise
