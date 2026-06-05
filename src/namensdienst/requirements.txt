@@ -2,3 +2,5 @@
 # grpcio>=1.80: generierter Proto-Code prüft GRPC_GENERATED_VERSION='1.80.0'
 # und wirft RuntimeError bei niedrigerer installierter Version.
 grpcio>=1.80
+grpcio-tools
+protobuf
