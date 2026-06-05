@@ -16,10 +16,10 @@ class Namensdienst:
 
         )
 
-    def LookupWorker(self,type):
+    def LookupWorker(self,request,context):
         result = []
         for worker in self.workers:
-            if worker.type==type and worker.status != "UNHEALTHY" and worker.status != "OFFLINE":
+            if worker.type==request.type and worker.status != "UNHEALTHY" and worker.status != "OFFLINE":
                 result.append(worker)
         print("Found workers of type " + type + ": ")
         for worker in result:
@@ -29,36 +29,35 @@ class Namensdienst:
         )
         
 
-    def DeregisterWorker(self,address,port):
+    def DeregisterWorker(self,request,context):
         for worker in self.workers:
-            if worker.address == address and worker.port == port:
+            if worker.address == request.address and worker.port == request.port:
                 self.workers.remove(worker)
-                print("De-Registered Worker with address " + address + ":" + port)
+                print("De-Registered Worker with address " + request.address + ":" + request.port)
                 return True
-        print("Could not find Worker with address " + address + " and port " + port)
+        print("Could not find Worker with address " + request.address + " and port " + request.port)
         return taskgrid_pb2.DeregisterResponse(
 
         )
     
-    def SendHeartbeat(self,worker_id,load):
+    def SendHeartbeat(self,request,context):
+
+        if not request.worker_id_load:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("task_type darf nicht leer sein")
+            #log_event(logger, "warning", "POST_TASK_rejected", request_id=rid, reason="missing_task_type")
+            return taskgrid_pb2.Ack()
+
         for worker in self.workers:
-            if worker.id == worker_id:
+            if worker.id == request.worker_id:
                 worker.lastHeartbeat = time.time()
-                worker.currentLoad = load
-                return True
-        return False
+                worker.currentLoad = request.load
+                return taskgrid_pb2.Ack()
 
     def startLoop():
         i = 1
     def endLoop():
         i = 1
-
-        
-testDienst = Namensdienst()
-testDienst.register_worker("flame_grill","google.com","98765")
-testDienst.register_worker("flame_grill","amazon.com","12345")
-testDienst.lookup_worker("flame_grill")
-testDienst.deregister_worker("google.com","98765")
 
 
 """
