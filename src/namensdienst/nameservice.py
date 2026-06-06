@@ -1,4 +1,5 @@
 import time
+import threading
 import grpc
 from src.namensdienst.worker import Worker
 from proto import taskgrid_pb2, taskgrid_pb2_grpc
@@ -7,6 +8,11 @@ class Namensdienst:
     def __init__(self):
         self.workers = []
         self.idcount = 0
+
+        self.running = False
+        self.loopThread = None
+
+        self.startLoop(self,5,2)
 
     def RegisterWorker(self,type,address,port):
         self.workers.append(Worker(type,address,port,self.idcount,self))
@@ -52,12 +58,39 @@ class Namensdienst:
             if worker.id == request.worker_id:
                 worker.lastHeartbeat = time.time()
                 worker.currentLoad = request.load
+                worker.status = "ACTIVE"
                 return taskgrid_pb2.Ack()
 
-    def startLoop():
-        i = 1
-    def endLoop():
-        i = 1
+     def startLoop(self, x, y):
+        self.running = True
+
+        def loop():
+            while self.running:
+                now = time.time()
+
+                # Kopie erstellen, damit während des Iterierens gelöscht werden kann
+                for worker in self.workers[:]:
+                    elapsed = now - worker.lastHeartbeat
+
+                    if elapsed >= x * y:
+                        worker.status = "OFFLINE"
+                        self.workers.remove(worker)
+                        print(f"Worker {worker.id} wurde OFFLINE gesetzt und entfernt")
+
+                    elif elapsed >= x:
+                        worker.status = "UNHEALTHY"
+                        print(f"Worker {worker.id} wurde UNHEALTHY gesetzt")
+
+                time.sleep(1)
+
+        self.loopThread = threading.Thread(target=loop, daemon=True)
+        self.loopThread.start()
+
+    def endLoop(self):
+        self.running = False
+
+        if self.loopThread is not None:
+            self.loopThread.join()
 
 
 """
