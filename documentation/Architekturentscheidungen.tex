@@ -4,9 +4,149 @@
 Architekturentscheidungen (Architecture Decision Records, ADRs)
 dokumentieren technische Entscheidungen mit Begründung und
 bewerteten Alternativen.
-Diese Dokumentation ist Prüfungsbestandteil (15-Punkte-Kriterium).
 
-\subsection{ADR-003: Worker-Auswahlstrategie -- Round-Robin}
+\subsection{ADR-001: Kommunikationsprotokoll (UDP vs. RPC)}
+\textbf{Betrifft}: Gesamte Systemkommunikation (Client, Dispatcher, Namensdienst, Worker)
+\\\\
+\noindent \textbf{Kontext}\\
+\noindent Für die Kommunikation zwischen Client, Dispatcher, Namensdienst und Workern
+wird ein Netzwerkprotokoll benötigt. Das System besteht aus mehreren
+verteilten Komponenten, die unterschiedliche Nachrichten austauschen
+(z. B. Task-Übermittlung, Worker-Registrierung, Heartbeats und Ergebnisrückgaben).
+\\
+Die Schnittstellen sollen klar definiert, typisiert und möglichst einfach
+implementierbar sein. Außerdem soll die Kommunikation effizient erfolgen
+und auch bei einer späteren Implementierung in anderen Programmiersprachen
+weiterverwendbar bleiben.
+\\\\
+\textbf{Entscheidung}\\
+\noindent \textbf{gRPC mit Protocol Buffers (RPC)} wurde als Kommunikationsprotokoll
+für sämtliche Verbindungen zwischen den Komponenten gewählt.
+\\
+Alle Nachrichten werden als Protobuf-Nachrichten definiert und über
+gRPC-Services ausgetauscht. Die Schnittstellendefinition erfolgt zentral
+in der Datei \texttt{proto/taskgrid.proto}.
+
+\subsubsection*{Bewertete Alternativen}
+
+\begin{table}[H]
+	\centering
+	\begin{tabular}{m{2.5cm} m{6.75cm} m{6cm}}
+		\toprule
+		\textbf{Protokoll} & \textbf{Vorteile} & \textbf{Nachteile} \\
+		\midrule
+		\textbf{gRPC / RPC} (gewählt) &
+		Strenge Typisierung, automatische Codegenerierung, effiziente binäre Serialisierung, sprachunabhängig &
+		Höhere Komplexität als einfache Socket-Kommunikation \\
+		\midrule
+		UDP &
+		Sehr geringer Overhead, schnelle Übertragung &
+		Keine Garantie für Zustellung, Reihenfolge oder Duplikatfreiheit; Zuverlässigkeit müsste selbst implementiert werden \\
+		\bottomrule
+	\end{tabular}
+	\caption{ADR-001: Bewertete Alternativen für das Kommunikationsprotokoll}
+\end{table}
+
+\subsubsection*{Begründung}
+
+gRPC wurde gewählt, weil:
+
+\begin{itemize}
+	\item Das System viele strukturierte Nachrichten zwischen verteilten Komponenten austauscht.
+	\item Die \texttt{.proto}-Datei als zentrale Schnittstellenbeschreibung dient und Inkonsistenzen zwischen Komponenten verhindert.
+	\item Client, Dispatcher, Namensdienst und Worker unabhängig voneinander entwickelt werden können.
+	\item Die automatische Generierung von Client- und Server-Code den Implementierungsaufwand reduziert.
+	\item Zuverlässigkeit, Verbindungsmanagement und Fehlerbehandlung bereits durch gRPC bereitgestellt werden und nicht selbst implementiert werden müssen.
+\end{itemize}
+
+\subsubsection*{Konsequenzen}
+
+Positiv: Einheitliche und typsichere Kommunikation im gesamten System,
+geringer Serialisierungsaufwand, gute Erweiterbarkeit sowie einfache
+Integration zusätzlicher Komponenten oder Programmiersprachen.
+\\
+Negativ: Abhängigkeit von gRPC- und Protobuf-Bibliotheken.
+Die Kommunikation ist weniger transparent als JSON-basierte Protokolle
+und Debugging auf Netzwerkebene kann aufwendiger sein.
+
+\subsection{ADR-002: Heartbeat-Mechanismus}
+
+\textbf{Betrifft}: Namensdienst, Worker-Management, Service Discovery
+\\\\
+\noindent\textbf{Kontext}\\
+\noindent Der Dispatcher darf Tasks nur an erreichbare Worker senden.
+Da Worker jederzeit abstürzen, beendet oder durch Netzwerkprobleme
+unerreichbar werden können, muss der Namensdienst erkennen können,
+welche Worker aktuell verfügbar sind.
+\\
+Eine einmalige Registrierung beim Start reicht hierfür nicht aus,
+da der Namensdienst sonst nicht feststellen kann, ob ein Worker
+zwischenzeitlich ausgefallen ist.
+\\\\
+\noindent \textbf{Entscheidung}\\
+\noindent Es wird ein periodischer \textbf{Heartbeat-Mechanismus} eingesetzt.\\
+Jeder Worker sendet nach erfolgreicher Registrierung in festen
+Zeitabständen einen Heartbeat an den Namensdienst.
+Bleibt ein Heartbeat länger als die konfigurierte Timeout-Schwelle aus,
+wird der Worker automatisch als inaktiv markiert und aus der Liste
+verfügbarer Worker entfernt.
+
+\begin{itemize}
+	\item Heartbeat-Intervall: \texttt{HEARTBEAT\_INTERVAL\_SECONDS}
+	\item Timeout-Schwelle: \texttt{HEARTBEAT\_TIMEOUT\_SECONDS}
+	\item Zustandsänderung: \texttt{ACTIVE} $\rightarrow$ \texttt{INACTIVE}
+	\item Inaktive Worker werden von \texttt{LookupWorker()} nicht mehr zurückgegeben.
+\end{itemize}
+
+\subsubsection*{Bewertete Alternativen}
+
+\begin{table}[H]
+	\centering
+	\begin{tabular}{m{3.25cm} m{6.25cm} m{6.5cm}}
+		\toprule
+		\textbf{Verfahren} & \textbf{Vorteile} & \textbf{Nachteile} \\
+		\midrule
+		\textbf{Heartbeat} &
+		Einfach implementierbar, schnelle Fehlererkennung, keine aktive Überwachung durch Dispatcher erforderlich &
+		Erzeugt regelmäßigen Netzwerkverkehr \\
+		\midrule
+		Periodisches Polling durch Namensdienst &
+		Kontrolle liegt zentral beim Namensdienst &
+		Zusätzliche Verbindungen; Namensdienst muss alle Worker aktiv kontaktieren \\
+		\midrule
+		Statische Registrierung &
+		Minimaler Kommunikationsaufwand &
+		Ausfälle werden nicht erkannt; veraltete Worker-Einträge bleiben bestehen \\
+		\bottomrule
+	\end{tabular}
+	\caption{ADR-005: Bewertete Alternativen für Worker-Überwachung}
+\end{table}
+
+\subsubsection*{Begründung}
+
+Der Heartbeat-Mechanismus wurde gewählt, weil:
+
+\begin{itemize}
+	\item Worker dynamisch gestartet und beendet werden können.
+	\item Der Namensdienst jederzeit eine aktuelle Liste verfügbarer Worker benötigt.
+	\item Die Implementierung einfach und unabhängig vom Dispatcher ist.
+	\item Ausfälle automatisch erkannt werden, ohne dass andere Komponenten eingreifen müssen.
+	\item Das Verfahren auch bei mehreren Worker-Instanzen gut skaliert.
+\end{itemize}
+
+\subsubsection*{Konsequenzen}
+
+Positiv: Ausgefallene Worker werden automatisch erkannt und aus der
+Service-Discovery entfernt. Der Dispatcher erhält nur noch erreichbare
+Worker und kann Tasks zuverlässig verteilen.
+\\
+Negativ: Zwischen Ausfall und Erkennung vergeht eine gewisse Zeit,
+die durch Heartbeat-Intervall und Timeout-Schwelle bestimmt wird.
+Kürzere Intervalle verbessern die Reaktionszeit, erhöhen jedoch die
+Netzwerklast und die Anzahl der Heartbeat-Nachrichten.
+
+
+\subsection{ADR-003: Worker-Auswahlstrategie - Round-Robin}
 
 \textbf{Status}: Akzeptiert \\
 \textbf{Betrifft}: \texttt{src/dispatcher/worker\_selector.py} (Issue \#14, \#15)
@@ -81,7 +221,7 @@ Negativ: Bei stark unterschiedlicher Task-Dauer kann ein Worker überlastet
 werden während andere idle sind. In diesem System ist das akzeptabel,
 da die Aufgaben (reverse, sum, hash, upper, wait) ähnliche Laufzeiten haben.
 
-\subsection{ADR-005: Timeout-Behandlung und Retry-Strategie}
+\subsection{ADR-004: Timeout-Behandlung und Retry-Strategie}
 
 \textbf{Status}: Akzeptiert \\
 \textbf{Betrifft}: \texttt{src/dispatcher/dispatch\_loop.py} (Issue \#18)
@@ -122,7 +262,7 @@ der gewählten Strategie.
 
 \begin{table}[H]
 \centering
-\begin{tabular}{lp{4.5cm}p{4.5cm}}
+\begin{tabular}{m{4.5cm} m{5.2cm} m{6.25cm}}
 \toprule
 \textbf{Strategie} & \textbf{Vorteile} & \textbf{Nachteile} \\
 \midrule
