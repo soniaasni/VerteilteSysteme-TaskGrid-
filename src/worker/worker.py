@@ -146,7 +146,7 @@ def send_heartbeat_loop():
     )
 )
 
-                print(f"[{WORKER_ID}] heartbeat: {response.message}")
+                print(f"[{WORKER_ID}] heartbeat: {response.payload.message}")
 
         except Exception as error:
             print(f"[{WORKER_ID}] heartbeat failed: {error}")
@@ -173,7 +173,7 @@ def deregister_worker():
 
             logging.info(
                 f"[{WORKER_ID}] event=DEREGISTER_WORKER "
-                f"success={response.success} message='{response.message}'"
+                f"success={response.payload.success} message='{response.payload.message}'"
             )
 
     except Exception as error:
@@ -187,7 +187,7 @@ def process_task(task):
         raise TaskProcessingError(
             f"Tasktyp '{task.payload.task_type}' wird von Worker {WORKER_ID} nicht unterstützt"
         )
-    if task.paylaod.task_type not in HANDLERS:
+    if task.payload.task_type not in HANDLERS:
         raise TaskProcessingError(
             f"Kein Handler für Tasktyp '{task.payload.task_type}' implementiert"
         )
@@ -199,7 +199,7 @@ def process_task(task):
 
     except Exception as error:
         raise TaskProcessingError(
-            f"Interner Fehler bei task_id={task.task_id}: {error}"
+            f"Interner Fehler bei task_id={task.payload.task_id}: {error}"
         )
 
 def send_result_to_dispatcher(task, result, status="COMPLETED", error=""):

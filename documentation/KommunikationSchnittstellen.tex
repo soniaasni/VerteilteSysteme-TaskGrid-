@@ -20,102 +20,136 @@ gRPC wurde aus folgenden Gründen gewählt:
 Die Schnittstellendefinition liegt in \texttt{proto/taskgrid.proto}.
 
 \subsection{Protobuf-Nachrichten}
+Alle Nachrichten folgen einem einheitlichen Schema:
+
+\begin{itemize}
+	\item \texttt{message\_type}: Typ der Nachricht
+	\item \texttt{request\_id}: eindeutige Korrelations-ID
+	\item \texttt{timestamp}: Erstellungszeitpunkt der Nachricht
+	\item \texttt{sender}: Absender der Nachricht
+	\item \texttt{payload}: nachrichtenspezifische Nutzdaten
+\end{itemize}
+Die Felder \texttt{message\_type}, \texttt{request\_id},
+\texttt{timestamp} und \texttt{sender} sind in allen Nachrichten identisch.
+Lediglich der Inhalt des Payloads unterscheidet sich je nach Nachrichtentyp.
 
 \subsubsection{Task-Nachrichten (Dispatcher $\leftrightarrow$ Worker)}
 
 \begin{table}[H]
-\centering
-\begin{tabular}{lll}
-\toprule
-\textbf{Nachricht} & \textbf{Feld} & \textbf{Bedeutung} \\
-\midrule
-\multirow{4}{*}{\texttt{TaskRequest}} & \texttt{request\_id: string} & Korrelations-ID des Aufrufs \\
- & \texttt{task\_id: int32}    & Eindeutige Task-Nummer \\
- & \texttt{task\_type: string} & Aufgabentyp (z.\,B. \texttt{sum}) \\
- & \texttt{task\_payload: string} & Eingabedaten \\
-\midrule
-\multirow{4}{*}{\texttt{TaskResponse}} & \texttt{status: string} & Akzeptiert/Abgelehnt \\
- & \texttt{task\_id: int32}     & Gespiegelte Task-ID \\
- & \texttt{worker\_id: string}  & Bearbeitender Worker \\
- & \texttt{error: string}       & Fehlermeldung (falls vorhanden) \\
-\bottomrule
-\end{tabular}
-\caption{Task-Nachrichten zwischen Dispatcher und Worker}
+	\centering
+	\begin{tabular}{lll}
+		\toprule
+		\textbf{Nachricht} & \textbf{Payload} & \textbf{Bedeutung} \\
+		\midrule
+		\multirow{4}{*}{\texttt{TaskRequest}} 
+		& \texttt{task\_id: int32} & Eindeutige Task-Nummer \\
+		& \texttt{task\_type: string} & Aufgabentyp \\
+		& \texttt{task\_payload: string} & Eingabedaten der Aufgabe \\
+		& \texttt{task\_status: string} & Aktueller Status der Aufgabe \\
+		\midrule
+		\multirow{5}{*}{\texttt{TaskResponse}} 
+		& \texttt{accepted: bool} & Gibt an, ob der Worker die Aufgabe annimmt \\
+		& \texttt{task\_id: int32} & Gespiegelte Task-ID \\
+		& \texttt{worker\_id: string} & Bearbeitender Worker \\
+		& \texttt{status: string} & Status der Annahme oder Bearbeitung \\
+		& \texttt{error: string} & Fehlermeldung, falls vorhanden \\
+		\bottomrule
+	\end{tabular}
+	\caption{Task-Nachrichten zwischen Dispatcher und Worker}
 \end{table}
 
 \subsubsection{Ergebnis-Rückmeldung (Worker $\rightarrow$ Dispatcher)}
 
 \begin{table}[H]
-\centering
-\begin{tabular}{lll}
-\toprule
-\textbf{Nachricht} & \textbf{Feld} & \textbf{Bedeutung} \\
-\midrule
-\multirow{6}{*}{\texttt{ResultRequest}} & \texttt{request\_id: string} & Korrelations-ID \\
- & \texttt{task\_id: int32}    & Task-Referenz \\
- & \texttt{worker\_id: string} & Meldender Worker \\
- & \texttt{status: string}     & \texttt{"COMPLETED"} oder \texttt{"FAILED"} \\
- & \texttt{result: string}     & Berechnetes Ergebnis \\
- & \texttt{error: string}      & Fehlerbeschreibung (bei FAILED) \\
-\midrule
-\multirow{2}{*}{\texttt{Ack}} & \texttt{success: bool} & Quittierung \\
- & \texttt{message: string}    & Optionale Nachricht \\
-\bottomrule
-\end{tabular}
-\caption{Ergebnis-Rückmeldung Worker an Dispatcher (ReturnResult)}
+	\centering
+	\begin{tabular}{lll}
+		\toprule
+		\textbf{Nachricht} & \textbf{Payload} & \textbf{Bedeutung} \\
+		\midrule
+		\multirow{5}{*}{\texttt{ResultRequest}} 
+		& \texttt{task\_id: int32} & Eindeutige Task-Nummer \\
+		& \texttt{worker\_id: string} & Worker, der die Aufgabe bearbeitet hat \\
+		& \texttt{status: string} & Ergebnisstatus der Aufgabe \\
+		& \texttt{result: string} & Ergebnis der Verarbeitung \\
+		& \texttt{error: string} & Fehlermeldung, falls vorhanden \\
+		\midrule
+		\multirow{2}{*}{\texttt{Ack}} 
+		& \texttt{success: bool} & Angenommen / Abgelehnt \\
+		& \texttt{message: string} & Bestätigungs- oder Fehlermeldung \\
+		\bottomrule
+	\end{tabular}
+	\caption{Ergebnis-Nachrichten vom Worker an den Dispatcher}
 \end{table}
 
 \subsubsection{Client-Schnittstelle (Client $\rightarrow$ Dispatcher)}
 
 \begin{table}[H]
-\centering
-\begin{tabular}{lll}
-\toprule
-\textbf{Nachricht} & \textbf{Feld} & \textbf{Bedeutung} \\
-\midrule
-\multirow{4}{*}{\texttt{PostTaskRequest}} & \texttt{request\_id: string} & Korrelations-ID \\
- & \texttt{task\_type: string}  & Aufgabentyp \\
- & \texttt{task\_payload: string} & Eingabedaten \\
- & \texttt{sender: string}      & Client-Identifikation \\
-\midrule
-\multirow{3}{*}{\texttt{GetResultRequest}} & \texttt{request\_id: string} & Korrelations-ID \\
- & \texttt{task\_id: int32}     & Abgefragte Task-ID \\
- & \texttt{sender: string}      & Client-Identifikation \\
-\midrule
-\multirow{3}{*}{\texttt{ResultResponse}} & \texttt{task\_id: int32} & Task-Referenz \\
- & \texttt{status: string}     & Aktueller Zustand \\
- & \texttt{result: string}     & Berechnetes Ergebnis \\
-\bottomrule
-\end{tabular}
-\caption{Client-Schnittstelle des Dispatchers}
+	\centering
+	\begin{tabular}{m{4cm} m{5cm} m{6.5cm}}
+		\toprule
+		\textbf{Nachricht} & \textbf{Feld} & \textbf{Bedeutung} \\
+		\midrule
+		\multirow{2}{*}{\texttt{PostTaskRequest}} 
+		& \texttt{task\_type: string} & Aufgabentyp \\
+		& \texttt{task\_payload: string} & Eingabedaten der Aufgabe \\
+		\midrule
+		\multirow{4}{*}{\texttt{PostTaskResponse}} 
+		& \texttt{success: bool} & Angenommen / Abgelehnt \\
+		& \texttt{task\_id: int32} & Zugewiesene Task-ID \\
+		& \texttt{status: string} & Status der Aufgabe \\
+		& \texttt{message: string} & Zusatzinformation zur Anfrage \\
+		\midrule
+		\multirow{1}{*}{\texttt{GetResultRequest}} 
+		& \texttt{task\_id: int32} & ID der abzufragenden Aufgabe \\
+		\midrule
+		\multirow{5}{*}{\texttt{ResultResponse}} 
+		& \texttt{found: bool} & Ergebnis gefunden oder nicht \\
+		& \texttt{task\_id: int32} & ID der abgefragten Aufgabe \\
+		& \texttt{status: string} & Status der Aufgabe \\
+		& \texttt{result: string} & Ergebnis der Aufgabe \\
+		& \texttt{error: string} & Fehlermeldung, falls vorhanden \\
+		\bottomrule
+	\end{tabular}
+	\caption{Nachrichten zwischen Client und Dispatcher}
 \end{table}
 
 \subsubsection{Namensdienst-Nachrichten}
-
 \begin{table}[H]
-\centering
-\begin{tabular}{lll}
-\toprule
-\textbf{Nachricht} & \textbf{Feld} & \textbf{Bedeutung} \\
-\midrule
-\multirow{6}{*}{\texttt{WorkerInfo}} & \texttt{worker\_id: string} & Eindeutige Worker-ID \\
- & \texttt{task\_types: string[]} & Unterstützte Typen \\
- & \texttt{address: string}       & Erreichbare Adresse \\
- & \texttt{port: int32}           & gRPC-Port \\
- & \texttt{status: string}        & \texttt{ACTIVE}, \texttt{OFFLINE} etc. \\
- & \texttt{current\_load: int32}  & Aktuelle Auslastung \\
-\midrule
-\multirow{3}{*}{\texttt{HeartbeatRequest}} & \texttt{worker\_id: string} & Sendender Worker \\
- & \texttt{timestamp: int64} & Unix-Timestamp \\
- & \texttt{current\_load: int32} & Aktuelle Auslastung \\
-\midrule
-\texttt{LookupRequest} & \texttt{task\_type: string} & Gesuchter Typ \\
-\midrule
-\multirow{2}{*}{\texttt{LookupResponse}} & \texttt{found: bool} & Wurden Worker gefunden? \\
- & \texttt{workers: WorkerInfo[]} & Liste aktiver Worker \\
-\bottomrule
-\end{tabular}
-\caption{Namensdienst-Nachrichten}
+	\centering
+	\begin{tabular}{m{4.75cm} m{4.5cm} m{6.5cm}}
+		\toprule
+		\textbf{Nachricht} & \textbf{Feld} & \textbf{Bedeutung} \\
+		\midrule
+		\multirow{6}{*}{\texttt{RegisterWorkerRequest}} 
+		& \texttt{worker\_id: string} & Eindeutige Worker-ID \\
+		& \texttt{task\_types: repeated string} & Unterstützte Aufgabentypen \\
+		& \texttt{address: string} & Netzwerkadresse des Workers \\
+		& \texttt{port: int32} & Port des Workers \\
+		& \texttt{status: string} & Aktueller Worker-Status \\
+		& \texttt{current\_load: int32} & Aktuelle Auslastung des Workers \\
+		\midrule
+		\multirow{3}{*}{\texttt{HeartbeatRequest}} 
+		& \texttt{worker\_id: string} & Worker, der den Heartbeat sendet \\
+		& \texttt{current\_load: int32} & Aktuelle Auslastung des Workers \\
+		& \texttt{status: string} & Aktueller Worker-Status \\
+		\midrule
+		\multirow{1}{*}{\texttt{DeregisterWorkerRequest}} 
+		& \texttt{worker\_id: string} & Zu deregistrierender Worker \\
+		\midrule
+		\multirow{1}{*}{\texttt{LookupRequest}} 
+		& \texttt{task\_type: string} & Gesuchter Aufgabentyp \\
+		\midrule
+		\multirow{3}{*}{\texttt{LookupResponse}} 
+		& \texttt{found: bool} & Worker gefunden oder nicht \\
+		& \texttt{workers: repeated WorkerPayload} & Liste passender Worker \\
+		& \texttt{message: string} & Zusatzinformation zur Suche \\
+		\midrule
+		\multirow{2}{*}{\texttt{Ack}} 
+		& \texttt{success: bool} & Gibt an, ob die Anfrage erfolgreich war \\
+		& \texttt{message: string} & Bestätigungs- oder Fehlermeldung \\
+		\bottomrule
+	\end{tabular}
+	\caption{Namensdienst-Nachrichten}
 \end{table}
 
 \subsection{gRPC-Dienste}
@@ -126,7 +160,6 @@ Das System definiert drei gRPC-Services in \texttt{proto/taskgrid.proto}:
 
 Der Namensdienst implementiert \texttt{NamingService}.
 Worker rufen die vier Methoden direkt auf:
-
 \begin{lstlisting}[language={},caption={NamingService in taskgrid.proto}]
 service NamingService {
   rpc RegisterWorker   (WorkerInfo)       returns (Ack);
@@ -157,8 +190,7 @@ Der Dispatcher ruft \texttt{ExecuteTask} auf:
 
 \begin{lstlisting}[language={},caption={WorkerService in taskgrid.proto}]
 service WorkerService {
-  rpc ExecuteTask (TaskRequest) returns (TaskResponse);
-}
+  rpc ExecuteTask (TaskRequest) returns (TaskResponse);}
 \end{lstlisting}
 
 \subsection{Kommunikationsfluss}
@@ -178,20 +210,3 @@ Der vollständige Fluss für eine erfolgreiche Task-Verarbeitung:
         Client pollt Ergebnis per \texttt{task\_id}.
         Dispatcher gibt aktuellen Zustand und Ergebnis zurück.
 \end{enumerate}
-
-\subsection{Besonderheiten der Proto-Kompatibilität}
-
-Da der Dispatcher und der Worker von verschiedenen Teammitgliedern
-implementiert wurden, mussten folgende Proto-Konventionen des Workers
-(Elena7x) übernommen werden:
-
-\begin{itemize}
-  \item \texttt{task\_id} als \texttt{int32} in allen Nachrichten
-        (intern im Dispatcher als \texttt{string} gespeichert, Konvertierung
-        an der gRPC-Grenze).
-  \item Ergebnis-Rückmeldung heißt \texttt{ReturnResult} (nicht \texttt{ReceiveResult}).
-  \item Ergebnis-Status als \texttt{string} (\texttt{"COMPLETED"}/\texttt{"FAILED"})
-        statt als Boolean.
-  \item Fehlerfeld heißt \texttt{error} (nicht \texttt{error\_msg}).
-  \item Quittierungs-Flag heißt \texttt{Ack.success} (nicht \texttt{Ack.ok}).
-\end{itemize}
