@@ -160,7 +160,6 @@ Das System definiert drei gRPC-Services in \texttt{proto/taskgrid.proto}:
 
 Der Namensdienst implementiert \texttt{NamingService}.
 Worker rufen die vier Methoden direkt auf:
-
 \begin{lstlisting}[language={},caption={NamingService in taskgrid.proto}]
 service NamingService {
   rpc RegisterWorker   (WorkerInfo)       returns (Ack);
@@ -191,8 +190,7 @@ Der Dispatcher ruft \texttt{ExecuteTask} auf:
 
 \begin{lstlisting}[language={},caption={WorkerService in taskgrid.proto}]
 service WorkerService {
-  rpc ExecuteTask (TaskRequest) returns (TaskResponse);
-}
+  rpc ExecuteTask (TaskRequest) returns (TaskResponse);}
 \end{lstlisting}
 
 \subsection{Kommunikationsfluss}
@@ -212,20 +210,3 @@ Der vollständige Fluss für eine erfolgreiche Task-Verarbeitung:
         Client pollt Ergebnis per \texttt{task\_id}.
         Dispatcher gibt aktuellen Zustand und Ergebnis zurück.
 \end{enumerate}
-
-\subsection{Besonderheiten der Proto-Kompatibilität}
-
-Da der Dispatcher und der Worker von verschiedenen Teammitgliedern
-implementiert wurden, mussten folgende Proto-Konventionen des Workers
-(Elena7x) übernommen werden:
-
-\begin{itemize}
-  \item \texttt{task\_id} als \texttt{int32} in allen Nachrichten
-        (intern im Dispatcher als \texttt{string} gespeichert, Konvertierung
-        an der gRPC-Grenze).
-  \item Ergebnis-Rückmeldung heißt \texttt{ReturnResult} (nicht \texttt{ReceiveResult}).
-  \item Ergebnis-Status als \texttt{string} (\texttt{"COMPLETED"}/\texttt{"FAILED"})
-        statt als Boolean.
-  \item Fehlerfeld heißt \texttt{error} (nicht \texttt{error\_msg}).
-  \item Quittierungs-Flag heißt \texttt{Ack.success} (nicht \texttt{Ack.ok}).
-\end{itemize}
