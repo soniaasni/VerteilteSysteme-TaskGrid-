@@ -206,8 +206,7 @@ Worker-Ports bleiben intern.
 \end{tabular}
 \caption{Docker-Services und Ports}
 \end{table}
-
-Die Startreihenfolge wird über \texttt{depends\_on} mit
+\noindent Die Startreihenfolge wird über \texttt{depends\_on} mit
 \texttt{condition: service\_healthy} erzwungen:
 Namensdienst startet zuerst, danach der Dispatcher,
 danach alle Worker und schließlich der Client.

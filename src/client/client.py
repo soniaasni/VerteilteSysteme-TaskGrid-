@@ -32,11 +32,11 @@ def send_task(task_type: str, payload: str):
                 )
             )
 
-        if response.success:
-            print(f"Task wurde angenommen. Task-ID: {response.task_id}")
-            return response.task_id
+        if response.payload.success:
+            print(f"Task wurde angenommen. Task-ID: {response.payload.task_id}")
+            return response.payload.task_id
 
-        print(f"Fehler: {response.message}")
+        print(f"Fehler: {response.payload.message}")
         return None
 
     except grpc.RpcError as error:
@@ -70,26 +70,26 @@ def request_result(task_id: int):
             )
 
         print(f"Task-ID: {task_id}")
-        print(f"Status: {response.status}")
+        print(f"Status: {response.payload.status}")
 
-        if not response.found:
+        if not response.payload.found:
             print("Task-ID nicht gefunden")
             return response
 
-        if response.status == "COMPLETED":
-            print(f"Ergebnis: {response.result}")
+        if response.payload.status == "COMPLETED":
+            print(f"Ergebnis: {response.payload.result}")
 
-        elif response.status == "FAILED":
-            print(f"Fehler: {response.error}")
+        elif response.payload.status == "FAILED":
+            print(f"Fehler: {response.payload.error}")
 
-        elif response.status in ["CREATED", "QUEUED", "DISPATCHED", "PROCESSING", "RETRYING"]:
-            print(f"Task wird noch verarbeitet (Status: {response.status})")
+        elif response.payload.status in ["CREATED", "QUEUED", "DISPATCHED", "PROCESSING", "RETRYING"]:
+            print(f"Task wird noch verarbeitet (Status: {response.payload.status})")
 
-        elif response.status == "TIMEOUT":
-            print(f"Task ist in einen Timeout gelaufen: {response.error}")
+        elif response.payload.status == "TIMEOUT":
+            print(f"Task ist in einen Timeout gelaufen: {response.payload.error}")
 
         else:
-            print(f"Unbekannter Status: {response.status}")
+            print(f"Unbekannter Status: {response.payload.status}")
 
         return response
 
