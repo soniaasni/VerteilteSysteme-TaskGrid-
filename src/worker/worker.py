@@ -187,7 +187,7 @@ def process_task(task):
         raise TaskProcessingError(
             f"Tasktyp '{task.payload.task_type}' wird von Worker {WORKER_ID} nicht unterstützt"
         )
-    if task.paylaod.task_type not in HANDLERS:
+    if task.payload.task_type not in HANDLERS:
         raise TaskProcessingError(
             f"Kein Handler für Tasktyp '{task.payload.task_type}' implementiert"
         )

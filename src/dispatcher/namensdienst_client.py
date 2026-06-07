@@ -33,15 +33,14 @@ class WorkerInfo:
 class NamensdienstClient:
     """
     Thin wrapper um den gRPC-Stub des Namensdiensts.
-    Verbindung wird lazy aufgebaut und bei jedem Aufruf genutzt.
+    Für jeden Lookup wird eine frische Verbindung aufgebaut, damit
+    Pausieren/Weiterlaufen des Namensdiensts sauber erneut benutzt werden kann.
     """
 
     def __init__(self) -> None:
         host = os.environ.get("NAMENSDIENST_HOST", "namensdienst")
         port = os.environ.get("NAMENSDIENST_PORT", "50052")
         self._target = f"{host}:{port}"
-        self._channel = grpc.insecure_channel(self._target)
-        self._stub = taskgrid_pb2_grpc.NamingServiceStub(self._channel)  # Elena: NamingService
         logger.info(f"NamensdienstClient verbindet zu {self._target}")
 
     def lookup_worker(self, task_type: str, request_id: str = "") -> List[WorkerInfo]:
@@ -50,8 +49,10 @@ class NamensdienstClient:
         Gibt leere Liste zurück wenn kein Worker verfügbar oder Namensdienst
         nicht erreichbar (kein Absturz — Fehler wird geloggt).
         """
+        channel = grpc.insecure_channel(self._target)
         try:
-            response = self._stub.LookupWorker(
+            stub = taskgrid_pb2_grpc.NamingServiceStub(channel)
+            response = stub.LookupWorker(
                 taskgrid_pb2.LookupRequest(
                     message_type="LOOKUP_WORKER",
                     request_id=request_id,
@@ -70,6 +71,8 @@ class NamensdienstClient:
                       error=str(e.code()),
                       target=self._target)
             return []
+        finally:
+            channel.close()
 
         if not response.payload.found or not response.payload.workers:
             log_event(logger, "warning", "LOOKUP_WORKER_no_workers",
