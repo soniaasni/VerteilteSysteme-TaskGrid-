@@ -25,6 +25,7 @@ hat folgende Vorteile:
 	\item \textbf{Dispatcher als zentrales Koordinationsorgan}: Er kennt alle
         Tasks, verwaltet deren Zustände und steuert die Retry-Logik.
         Kein anderer Systemteil muss über den Gesamtzustand Bescheid wissen.
+\newpage
   	\item \textbf{Worker vollständig zustandslos}: Jeder Worker empfängt genau
         einen Task, verarbeitet ihn und sendet das Ergebnis an den Dispatcher
         zurück. Worker können jederzeit hinzugefügt oder entfernt werden,
@@ -61,10 +62,10 @@ Background-Thread (\texttt{DispatchLoop}) an Worker.
 Er empfängt Ergebnisse von Workern (\texttt{ReturnResult}),
 verwaltet die Zustandsmaschine (8 Zustände, s. Abschnitt~\ref{sec:datenmodell})
 und stellt Ergebnisse an Clients bereit (\texttt{GetResult}).
-
+\\
 Ein separater HTTP-Thread beantwortet Monitoring-Anfragen
 (\texttt{GET /status}, Port 8080).
-
+\\
 Die Dispatcher-Implementierung ist in \texttt{src/dispatcher/} abgelegt und
 umfasst folgende Module:
 
@@ -103,19 +104,80 @@ für einen bestimmten Task-Typ zu erhalten.
 
 \subsubsection{Worker}
 
-Worker sind zustandslose Verarbeitungseinheiten.
-Jeder Worker implementiert den gRPC-Dienst \texttt{WorkerService}
-mit der Methode \texttt{ExecuteTask}.
-Die unterstützten Task-Typen werden per Umgebungsvariable
-\texttt{WORKER\_TYPE} konfiguriert.
-Das System unterstützt fünf Pflicht-Task-Typen:
-\texttt{reverse}, \texttt{sum}, \texttt{hash}, \texttt{upper}, \texttt{wait}.
+Der Worker führt die eigentliche Verarbeitung der Tasks aus.
+Beim Start registriert er sich beim Namensdienst
+(\texttt{RegisterWorker}) und meldet dort seine unterstützten Tasktypen.
+Während der Laufzeit sendet er regelmäßig Heartbeats
+(\texttt{SendHeartbeat}), um Verfügbarkeit, Status und aktuelle Last zu
+melden. Tasks erhält der Worker vom Dispatcher über
+\texttt{ExecuteTask}. Nach der Verarbeitung sendet er das Ergebnis oder eine
+Fehlermeldung über \texttt{ReturnResult} an den Dispatcher zurück.
+\\
+Die Taskzustände werden nicht dauerhaft im Worker gespeichert, sondern zentral
+im Dispatcher verwaltet. Der Worker verwaltet nur lokale Laufzeitinformationen
+wie \texttt{current\_load} und den Shutdown-Zustand
+\texttt{is\_draining}. Beim Herunterfahren setzt der Worker den Status
+\texttt{DRAINING}, nimmt keine neuen Tasks mehr an, wartet auf laufende Tasks
+und meldet sich anschließend beim Namensdienst ab
+(\texttt{DeregisterWorker}).
+\\
+Die Worker-Implementierung ist in \texttt{src/worker/} abgelegt und umfasst
+folgende Module:
+
+\begin{table}[H]
+	\centering
+	\begin{tabular}{m{6.5cm} m{10cm}}
+		\toprule
+		\textbf{Modul} & \textbf{Aufgabe} \\
+		\midrule
+		\texttt{worker.py}              & gRPC-Server, Registrierung, Heartbeat, Taskannahme, Ergebnisrückgabe, Graceful Shutdown \\
+		\texttt{task\_handlers/reverse.py}      & Tasktyp \texttt{reverse}: String umdrehen \\
+		\texttt{task\_handlers/sum\_handler.py} & Tasktyp \texttt{sum}: kommagetrennte Zahlen summieren \\
+		\texttt{task\_handlers/hash\_handler.py}& Tasktyp \texttt{hash}: SHA256-Hash berechnen \\
+		\texttt{task\_handlers/upper.py}        & Tasktyp \texttt{upper}: String in Großbuchstaben umwandeln \\
+		\texttt{task\_handlers/wait\_handler.py}& Tasktyp \texttt{wait}: künstliche Verzögerung zur Last- und Timeout-Simulation \\
+		\texttt{Dockerfile}             & Container-Image für Worker bauen \\
+		\texttt{entrypoint.sh}          & Startkonfiguration aus Umgebungsvariablen vorbereiten \\
+		\texttt{requirements.txt}       & Python-Abhängigkeiten des Workers \\
+		\bottomrule
+	\end{tabular}
+	\caption{Worker-Module und ihre Aufgaben}
+\end{table}
 
 \subsubsection{Client}
 
-Der Client sendet Tasks an den Dispatcher und fragt deren Ergebnisse ab.
-Im Demo-Modus (\texttt{CLIENT\_MODE=demo}) sendet er je einen Task
-aller Pflichttypen, wartet auf die Ergebnisse und beendet sich.
+Der Client stellt die Benutzerschnittstelle des Systems dar.
+Er ermöglicht das Erstellen neuer Tasks sowie das Abfragen bereits
+verarbeiteter Ergebnisse. Dazu kommuniziert der Client ausschließlich mit dem
+Dispatcher und besitzt keine direkte Verbindung zu Workern oder Namensdienst.
+\\
+Zum Erstellen eines Tasks sendet der Client eine
+\texttt{PostTask}-Anfrage an den Dispatcher. Die Antwort enthält eine
+eindeutige \texttt{task\_id}, die für spätere Ergebnisabfragen verwendet
+werden kann. Über \texttt{GetResult} kann der aktuelle Status einer Task
+abgerufen werden. Der Client wertet die vom Dispatcher zurückgegebenen
+Taskzustände aus und stellt diese in einer benutzerfreundlichen Form dar.
+\\
+Der Client wird als Kommandozeilenanwendung ausgeführt und unterstützt die
+Befehle \texttt{send} zum Erstellen neuer Tasks sowie \texttt{result} zum
+Abfragen von Ergebnissen. Kommunikations- und Verbindungsfehler werden
+abgefangen und als verständliche Fehlermeldungen ausgegeben.
+\\
+Die Client-Implementierung ist in \texttt{src/client/} abgelegt und umfasst
+folgende Module:
+
+\begin{table}[H]
+	\centering
+	\begin{tabular}{m{2.5cm} m{12.5cm}}
+		\toprule
+		\textbf{Modul} & \textbf{Aufgabe} \\
+		\midrule
+		\texttt{client.py} & Kommandozeileninterface, Versand von Tasks, Ergebnisabfrage, Fehlerbehandlung und gRPC-Kommunikation mit dem Dispatcher \\
+		\texttt{Dockerfile} & Container-Image für den Client bauen \\
+		\bottomrule
+	\end{tabular}
+	\caption{Client-Module und ihre Aufgaben}
+\end{table}
 
 \subsection{Container- und Netzwerkstruktur}
 \label{sec:container}
