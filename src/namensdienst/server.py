@@ -13,7 +13,7 @@ from proto import taskgrid_pb2_grpc
 from src.common.logger import get_logger
 from src.namensdienst.nameservice import Namensdienst
 
-logger = get_logger("dispatcher.server")
+logger = get_logger("nameservice.server")
 
 
 def serve() -> None:
