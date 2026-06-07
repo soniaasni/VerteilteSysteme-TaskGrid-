@@ -8,25 +8,11 @@ Clients senden Aufgaben an den zentralen Dispatcher, der diese verwaltet
 und an geeignete Worker weiterleitet.
 Die Adressierung der Worker erfolgt nicht statisch, sondern dynamisch über
 einen eigenen \textbf{Namensdienst} (Service Discovery), bei dem sich jeder
-Worker beim Start registriert.
+Worker beim Start registriert. Das Monitoring wurde als separater HTTP-Endpunkt innerhalb des Dispatchers realisiert. Ein Hintergrundthread stellt unter GET /status auf Port 8080 Laufzeitinformationen wie Queue-Größe, aktive Worker, laufende Tasks, erfolgreiche Tasks, Fehlversuche und Timeouts bereit. Dadurch können Monitoring-Anfragen unabhängig von der gRPC-Kommunikation verarbeitet werden.
 
 \begin{figure}[H]
 \centering
-\begin{lstlisting}[language={},frame=single,basicstyle=\ttfamily\small]
-  +--------+   PostTask / GetResult   +------------+
-  | Client |  ----------------------> | Dispatcher |
-  +--------+   (gRPC :50051)          +-----+------+
-                                            |
-                         LookupWorker       |  ExecuteTask
-                         (gRPC :50052)      v  (gRPC :50051)
-                    +---------------+   +--------+
-                    | Namensdienst  |   | Worker |
-                    |  (Discovery)  |   | (N x)  |
-                    +-------+-------+   +--------+
-                            ^
-                    Register / Heartbeat
-                    (Worker --> Namensdienst)
-\end{lstlisting}
+\includegraphics[scale=0.65]{Architekturdiagramm.drawio.png}
 \caption{Komponentendiagramm TaskGrid+}
 \end{figure}
 
