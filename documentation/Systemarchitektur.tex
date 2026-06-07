@@ -22,21 +22,32 @@ Die Trennung in vier Komponenten (Client, Dispatcher, Namensdienst, Worker)
 hat folgende Vorteile:
 
 \begin{itemize}
-  \item \textbf{Dispatcher als zentrales Koordinationsorgan}: Er kennt alle
+	\item \textbf{Dispatcher als zentrales Koordinationsorgan}: Er kennt alle
         Tasks, verwaltet deren Zustände und steuert die Retry-Logik.
         Kein anderer Systemteil muss über den Gesamtzustand Bescheid wissen.
-  \item \textbf{Worker vollständig zustandslos}: Jeder Worker empfängt genau
+  	\item \textbf{Worker vollständig zustandslos}: Jeder Worker empfängt genau
         einen Task, verarbeitet ihn und sendet das Ergebnis an den Dispatcher
         zurück. Worker können jederzeit hinzugefügt oder entfernt werden,
         ohne das System zu stoppen.
-  \item \textbf{Namensdienst als Single Source of Truth}: Worker-Adressen
+  	\item \textbf{Namensdienst als Single Source of Truth}: Worker-Adressen
         werden \emph{nirgends} statisch konfiguriert.
         Der Dispatcher fragt den Namensdienst bei jedem Dispatch-Vorgang ab.
-        Fällt ein Worker aus, wird er nicht mehr gefunden -- kein manuelles
+        Fällt ein Worker aus, wird er nicht mehr gefunden - kein manuelles
         Eingreifen nötig.
-  \item \textbf{gRPC als einziges Transportprotokoll}: Einheitliches
-        Schnittstellenformat, effiziente binäre Serialisierung (Protobuf),
-        einfache Sprachunabhängigkeit.
+    \item \textbf{Containerisierung und Skalierbarkeit}:
+    Jede Komponente wird in einem eigenen Docker-Container betrieben.
+    Dadurch können Worker unabhängig voneinander gestartet, beendet oder
+    skaliert werden. Mehrere Instanzen eines Worker-Typs können parallel
+    betrieben werden, ohne Änderungen an Dispatcher oder Namensdienst.
+  	\item \textbf{Kommunikation über klar definierte gRPC-Schnittstellen}:
+  	Sämtliche Kommunikation zwischen den Komponenten erfolgt über
+  	standardisierte gRPC-Schnittstellen. Clients kommunizieren nur mit dem
+  	Dispatcher und niemals direkt mit Workern. Worker kommunizieren
+  	ausschließlich mit Dispatcher und Namensdienst. Dadurch bleiben die
+  	Komponenten lose gekoppelt, während Zustandsverwaltung,
+  	Lastverteilung und Fehlerbehandlung zentral im Dispatcher gebündelt
+  	werden. Die Verwendung von Protobuf ermöglicht zudem eine effiziente
+  	binäre Serialisierung und eine sprachunabhängige Schnittstellendefinition.
 \end{itemize}
 
 \subsection{Beschreibung der Komponenten}
