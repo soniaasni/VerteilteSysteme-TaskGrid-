@@ -65,19 +65,18 @@ initialisiert und gestartet:
   \item SIGTERM/SIGINT-Handler registrieren (Graceful Shutdown).
 \end{enumerate}
 
-\subsection{Proto-Kompatibilität mit Elena's Worker}
+\subsection{Proto-Kompatibilität mit Worker}
 \label{sec:dispatcher-proto}
 
 Das gemeinsame Nachrichtenformat ist in \texttt{proto/taskgrid.proto}
-(proto3) definiert. Da Elenas Worker-Code eigene Proto-Stubs mitbringt,
-wurden alle Dispatcher-Proto-Definitionen auf Elenas Konventionen abgestimmt
-(\textit{``Passe alles auf Elena an, mache Kompromisse, ändere nichts an Elenas Code''}):
+(proto3) definiert. Da der Worker-Code eigene Proto-Stubs mitbringt,
+wurden alle Dispatcher-Proto-Definitionen auf Konventionen abgestimmt:
 
 \begin{table}[H]
 \centering
 \begin{tabular}{lll}
 \toprule
-\textbf{Aspect} & \textbf{Elena-Konvention} & \textbf{Dispatcher-intern} \\
+\textbf{Aspect} & \textbf{Worker-Konvention} & \textbf{Dispatcher-intern} \\
 \midrule
 Task-ID im Proto      & \texttt{int32 task\_id}      & \texttt{str} (thread-sicherer Zähler) \\
 Task-Payload-Feld     & \texttt{task\_payload}       & \texttt{task.payload} \\
@@ -88,7 +87,7 @@ ACK-Feld              & \texttt{Ack.success} (bool)  & \texttt{Ack.success} \\
 Namensdienst-Service  & \texttt{NamingService}       & \texttt{NamingServiceStub} \\
 \bottomrule
 \end{tabular}
-\caption{Proto-Kompatibilität Dispatcher/Elena}
+\caption{Proto-Kompatibilität Dispatcher/Worker}
 \end{table}
 
 Die Konvertierung erfolgt ausschließlich an der gRPC-Grenze:

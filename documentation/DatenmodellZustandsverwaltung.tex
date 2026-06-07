@@ -10,7 +10,7 @@ Das Modell entspricht dem in der Aufgabenstellung geforderten
 
 \begin{table}[H]
 \centering
-\begin{tabular}{llll}
+\begin{tabular}{m{4.4cm} m{2.2cm} m{6.75cm} m{2cm}}
 \toprule
 \textbf{Feld} & \textbf{Typ} & \textbf{Bedeutung} & \textbf{Länge} \\
 \midrule
@@ -28,15 +28,15 @@ Das Modell entspricht dem in der Aufgabenstellung geforderten
 \end{tabular}
 \caption{Task-Datenfelder}
 \end{table}
-
-Die Längenbeschränkungen (\texttt{MAX\_TYPE\_LEN = 32}, \texttt{MAX\_PAYLOAD\_LEN = 1024},
+\noindent Die Längenbeschränkungen (\texttt{MAX\_TYPE\_LEN = 32}, \texttt{MAX\_PAYLOAD\_LEN = 1024},
 \texttt{MAX\_WORKER\_LEN = 64}) werden im \texttt{PostTask}-Handler geprüft.
 Überschreitungen werden mit gRPC-Fehlercode \texttt{INVALID\_ARGUMENT} abgelehnt.
+\newpage
 
 \subsection{Task-Identifikation}
-
 Task-IDs werden durch einen thread-sicheren, monoton steigenden Zähler
-in \texttt{src/common/protocol.py} erzeugt:
+in\\
+\texttt{src/common/protocol.py} erzeugt:
 
 \begin{lstlisting}[language=Python,caption={Thread-sichere Task-ID-Generierung}]
 _task_id_lock = threading.Lock()
@@ -49,7 +49,7 @@ def new_task_id() -> str:
         return str(_task_id_counter)
 \end{lstlisting}
 
-Der Zähler wird als String gespeichert, ist aber int32-kompatibel --
+\noindent Der Zähler wird als String gespeichert, ist aber int32-kompatibel --
 notwendig für die Proto-Kompatibilität mit dem Worker-Code.
 
 \subsection{Zustände der Zustandsmaschine}
@@ -97,8 +97,9 @@ VALID_TRANSITIONS: dict[TaskState, set[TaskState]] = {
 }
 \end{lstlisting}
 
-Jeder Übergangsversuch der nicht in \texttt{VALID\_TRANSITIONS} gelistet ist,
-wirft eine \texttt{InvalidTransitionError}-Exception.
+\noindent Jeder Übergangsversuch der nicht in \texttt{VALID\_TRANSITIONS} gelistet ist,
+wirft eine \\
+\texttt{InvalidTransitionError}-Exception.
 Dies verhindert inkonsistente Zustände im Concurrent-Betrieb.
 
 \subsection{Zustandsdiagramm}
@@ -196,7 +197,7 @@ Der Dispatcher verarbeitet mehrere Tasks gleichzeitig durch folgendes Design:
 \begin{enumerate}
   \item Der \texttt{DispatchLoop}-Thread liest sequenziell aus der Queue
         (kein Race auf \texttt{Queue.get()}).
-  \item Jeder Dispatch-Vorgang wird in einem eigenen Thread des
+  \item Jeder Dispatch-Vorgang wird in einem eigenen Thread des\\
         \texttt{ThreadPoolExecutor(max\_workers=10)} ausgeführt.
   \item Dadurch können bis zu 10 Tasks gleichzeitig \textit{in-flight} sein
         (an Worker gesendet, warten auf Ergebnis).
