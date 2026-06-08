@@ -1,8 +1,15 @@
 import time
 import threading
 import grpc
+import os
 from src.namensdienst.worker import Worker
 from proto import taskgrid_pb2, taskgrid_pb2_grpc
+from src.common.logger import get_logger, log_event
+
+logger = get_logger("nameservice.nameservice")
+
+NAMESERVICE_UNHEALTHY_SECS  = int(os.environ.get("NAMESERVICE_UNHEALTHY_SECS", "5"))
+NAMESERVICE_OFFLINE_MULT  = int(os.environ.get("NAMESERVICE_OFFLINE_MULT", "2"))
 
 class Namensdienst:
     def __init__(self):
@@ -12,7 +19,7 @@ class Namensdienst:
         self.running = False
         self.loopThread = None
 
-        self.startLoop(5, 2)
+        self.startLoop(NAMESERVICE_UNHEALTHY_SECS, NAMESERVICE_OFFLINE_MULT)
 
     def RegisterWorker(self, request, context):
         payload = request.payload
@@ -54,6 +61,8 @@ class Namensdienst:
         ]
 
         print(f"Found {len(result)} workers of type {task_type}")
+        #log_event(logger, "warning", "NAMESERVICE_lookup_empty", task_type=task_type)
+        logger.info(f"Found {len(result)} workers of type {task_type}")
         for worker in result:
             print(f"Worker {worker.worker_id}: {worker.address}, {worker.port}")
 
@@ -114,10 +123,14 @@ class Namensdienst:
                         worker.status = "OFFLINE"
                         self.workers.remove(worker)
                         print(f"Worker {worker.id} wurde OFFLINE gesetzt und entfernt")
+                        #log_event(logger, "warning", "NAMESERVICE_worker_offline", worker_id=worker.id)
+                        logger.info(f"Worker {worker.id} wurde OFFLINE gesetzt")
 
                     elif elapsed >= x:
                         worker.status = "UNHEALTHY"
                         print(f"Worker {worker.id} wurde UNHEALTHY gesetzt")
+                        #log_event(logger, "warning", "NAMESERVICE_worker_unhealthy", worker_id=worker.id)
+                        logger.info(f"Worker {worker.id} wurde UNHEALTHY gesetzt")
 
                 time.sleep(1)
 
