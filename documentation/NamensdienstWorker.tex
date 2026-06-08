@@ -113,7 +113,7 @@ port = os.environ.get("NAMENSDIENST_PORT", "50052")
 self._target = f"{host}:{port}"
 \end{lstlisting}
 
-Die Methode \texttt{lookup\_worker(task\_type, request\_id)} ist defensiv implementiert:
+\noindent Die Methode \texttt{lookup\_worker(task\_type, request\_id)} ist defensiv implementiert:
 Bei einem gRPC-Fehler (Namensdienst nicht erreichbar, Timeout) wird
 keine Exception geworfen, sondern eine leere Liste zurückgegeben.
 Der Dispatcher behandelt dies wie "`kein Worker verfügbar"' und
@@ -148,7 +148,7 @@ class RoundRobinSelector:
         return workers[idx]
 \end{lstlisting}
 
-Der Counter ist thread-sicher (Lock) und wird bei jedem Aufruf inkrementiert.
+\noindent Der Counter ist thread-sicher (Lock) und wird bei jedem Aufruf inkrementiert.
 Bei 3 Workern verteilen sich 6 aufeinanderfolgende Tasks gleichmäßig
 auf Worker 0, 1, 2, 0, 1, 2.
 
@@ -177,7 +177,7 @@ Worker-Typen unabhängig skalieren:
 docker compose up --scale worker-sum=3 --scale worker-reverse=2
 \end{lstlisting}
 
-Jede Instanz registriert sich mit einer eindeutigen \texttt{WORKER\_ID}
+\noindent Jede Instanz registriert sich mit einer eindeutigen \texttt{WORKER\_ID}
 (hostname-basiert) beim Namensdienst.
 \texttt{LookupWorker} gibt alle drei \texttt{worker-sum}-Instanzen zurück.
 Der Round-Robin-Selector verteilt Tasks gleichmäßig auf alle drei.

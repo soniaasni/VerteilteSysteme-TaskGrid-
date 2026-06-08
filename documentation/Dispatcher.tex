@@ -372,9 +372,8 @@ behoben und sind in der State-Machine dokumentiert.
 
 Alle Komponenten des Dispatchers nutzen das zentrale Modul
 \texttt{src/common/logger.py}.
-
+\newpage
 \subsubsection*{Log-Format}
-
 \begin{lstlisting}[language={},caption={Strukturiertes Log-Format (§13)}]
 [component] request_id=X task_id=Y event=Z key=value key=value
 \end{lstlisting}
@@ -451,7 +450,7 @@ Die Antwort ist ein JSON-Objekt mit allen neun Pflichtfeldern aus der Aufgabenst
 
 \begin{table}[H]
 \centering
-\begin{tabular}{ll}
+\begin{tabular}{m{5.5cm} m{11cm}}
 \toprule
 \textbf{Feld} & \textbf{Quelle} \\
 \midrule
@@ -461,7 +460,7 @@ Die Antwort ist ein JSON-Objekt mit allen neun Pflichtfeldern aus der Aufgabenst
 \texttt{laufende\_tasks}         & TaskStore: Count(DISPATCHED + PROCESSING + RETRYING) \\
 \texttt{abgeschlossene\_tasks}   & TaskStore: Count(status=COMPLETED) \\
 \texttt{fehlgeschlagene\_tasks}  & TaskStore: Count(FAILED + TIMEOUT) \\
-\texttt{durchschnittliche\_bearbeitungszeit\_ms} & Ø (timestamp\_completed - timestamp\_dispatched) × 1000 \\
+\path{durchschnittliche_bearbeitungszeit_ms} & Ø (timestamp\_completed - timestamp\_dispatched) × 1000 \\
 \texttt{anzahl\_timeouts}        & Summe aller \texttt{task.retry\_count} \\
 \texttt{anzahl\_retries}         & Identisch (jeder Retry durch Timeout ausgelöst) \\
 \bottomrule

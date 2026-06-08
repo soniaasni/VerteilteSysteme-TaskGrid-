@@ -20,7 +20,7 @@ Docker Compose    & 2.x (v3.9)      & Orchestrierung des Gesamtsystems \\
 \end{table}
 
 \textbf{Wichtiger Hinweis zur grpcio-Version}:
-Der generierte Proto-Code (\texttt{proto/taskgrid\_pb2\_grpc.py}) prüft
+Der generierte Proto-Code (\path{proto/taskgrid_pb2_grpc.py}) prüft
 \texttt{GRPC\_GENERATED\_VERSION = '1.80.0'} zur Laufzeit und
 wirft eine \texttt{RuntimeError} bei einer niedrigeren installierten Version.
 Daher ist in allen \texttt{requirements.txt}-Dateien \texttt{grpcio>=1.80}
@@ -36,7 +36,7 @@ stellt zwei Funktionen bereit:
 \begin{itemize}
   \item \texttt{get\_logger(component)}: Gibt einen konfigurierten Logger zurück.
         Gibt Logs gleichzeitig auf stdout (ohne Timestamp) und in eine Datei
-        (mit Timestamp, Pfad: \texttt{LOG\_DIR/<component>.log}) aus.
+        (mit Timestamp, Pfad: \path{LOG_DIR/<component>.log}) aus.
   \item \texttt{log\_event(logger, level, event, request\_id, task\_id, **extra)}:
         Erzeugt einen strukturierten Log-Eintrag im Format §13.
 \end{itemize}
@@ -84,7 +84,7 @@ Valide Tasks erhalten eine neue \texttt{task\_id}, werden im
 \subsection{Worker-Lookup (Issue \#14)}
 
 Der Dispatcher löst Worker-Adressen nie statisch auf.
-Stattdessen ruft \texttt{NamensdienstClient.lookup\_worker()} bei jedem
+Stattdessen ruft \path{NamensdienstClient.lookup_worker()} bei jedem
 Dispatch-Vorgang den Namensdienst ab.
 Ein Round-Robin-Selector wählt einen Worker aus der zurückgegebenen Liste.
 Bei leerer Liste wartet der Dispatcher \texttt{DISPATCH\_NO\_WORKER\_RETRY\_SECONDS}
@@ -103,8 +103,8 @@ Drei Sonderfälle werden behandelt:
         wird gefangen, Fehler wird geloggt.
 \end{enumerate}
 
-Bei erfolgreichem Empfang wird der Timeout-Timer sofort abgebrochen
-(\texttt{dispatch\_loop.cancel\_timeout(task\_id)}), bevor der
+\noindent Bei erfolgreichem Empfang wird der Timeout-Timer sofort abgebrochen
+(\path{dispatch_loop.cancel_timeout(task_id)}), bevor der
 Zustandsübergang ausgeführt wird.
 Die \texttt{duration\_ms} wird als Differenz zwischen
 \texttt{timestamp\_dispatched} und \texttt{timestamp\_completed} berechnet
@@ -132,7 +132,7 @@ Der \texttt{StatusCollector} aggregiert folgende Felder:
 
 \begin{table}[H]
 \centering
-\begin{tabular}{ll}
+\begin{tabular}{m{6.5cm} m{10cm}}
 \toprule
 \textbf{Feld} & \textbf{Bedeutung} \\
 \midrule
@@ -142,7 +142,7 @@ Der \texttt{StatusCollector} aggregiert folgende Felder:
 \texttt{laufende\_tasks}                      & Tasks in DISPATCHED/PROCESSING/RETRYING \\
 \texttt{abgeschlossene\_tasks}                & Tasks in COMPLETED \\
 \texttt{fehlgeschlagene\_tasks}               & Tasks in FAILED/TIMEOUT \\
-\texttt{durchschnittliche\_bearbeitungszeit\_ms} & Ø Bearbeitungszeit aller COMPLETED-Tasks \\
+\path{durchschnittliche_bearbeitungszeit_ms} & Ø Bearbeitungszeit aller COMPLETED-Tasks \\
 \texttt{anzahl\_timeouts}                     & Summe aller retry\_counts \\
 \texttt{anzahl\_retries}                      & Identisch mit anzahl\_timeouts \\
 \bottomrule
@@ -291,7 +291,7 @@ CMD ["python", "src/dispatcher/server.py"]
 \textbf{Keine Worker-Adressen}: Gemäß Aufgabenanforderung §4.2 enthält das
 Dockerfile keine Worker-Adressen oder -Ports. Der Dispatcher ermittelt
 Worker ausschließlich dynamisch über den Namensdienst (\texttt{LOOKUP\_WORKER}).
-
+\newpage
 \subsubsection{Client Dockerfile -- Issue \#34}
 
 Build-Kontext: Projekt-Root. Benötigt \texttt{proto/} und \texttt{src/client/}.
