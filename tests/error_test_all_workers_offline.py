@@ -321,13 +321,17 @@ def test_nameservice_marks_worker_unhealthy_then_offline():
         )
 
         # ── 4. Warten bis OFFLINE → Worker vollständig entfernt ──────────────
-        # Namensdienst entfernt Worker endgültig nach NAMESERVICE_OFFLINE_SECS (10s).
+        # Namensdienst entfernt Worker endgültig nach NAMESERVICE_OFFLINE_SECS.
+        # WICHTIG: LookupWorker gibt bereits nach UNHEALTHY eine leere Liste zurück
+        # (UNHEALTHY-Worker werden gefiltert). Deshalb kann hier nicht auf
+        # len(workers_after) > 0 gepollt werden — stattdessen auf den OFFLINE-Log.
         offline_deadline = time.time() + OFFLINE_POLL_TIMEOUT_SECS
-        workers_after = _lookup_worker_via_nameservice("sum")
-        while time.time() < offline_deadline and len(workers_after) > 0:
+        ns_logs = _get_nameservice_logs()
+        while time.time() < offline_deadline and "OFFLINE" not in ns_logs:
             time.sleep(2)
-            workers_after = _lookup_worker_via_nameservice("sum")
+            ns_logs = _get_nameservice_logs()
 
+        workers_after = _lookup_worker_via_nameservice("sum")
         assert len(workers_after) == 0, (
             f"Namensdienst gibt nach {OFFLINE_POLL_TIMEOUT_SECS}s noch "
             f"{len(workers_after)} 'sum'-Worker zurück. "
@@ -336,7 +340,6 @@ def test_nameservice_marks_worker_unhealthy_then_offline():
         )
 
         # ── 5. Log-Prüfung: Statusübergänge dokumentiert ─────────────────────
-        ns_logs = _get_nameservice_logs()
 
         assert "UNHEALTHY" in ns_logs, (
             "Kein UNHEALTHY-Übergang in den Namensdienst-Logs gefunden. "

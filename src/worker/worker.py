@@ -312,7 +312,10 @@ def graceful_shutdown():
 
     wait_for_running_tasks()
 
-    deregister_worker()
+    # Kein deregister_worker() hier: Worker soll stumm werden (keine Heartbeats mehr),
+    # damit der Namensdienst den Übergang ACTIVE → UNHEALTHY → OFFLINE
+    # über den Heartbeat-Timeout selbst durchführt (testbar in error_test_all_workers_offline).
+    # Ein sofortiges DeregisterWorker würde diesen Zustandsübergang überspringen.
 
     logging.info(f"[{WORKER_ID}] event=GRACEFUL_SHUTDOWN_FINISHED")
 
