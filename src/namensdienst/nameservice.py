@@ -118,7 +118,11 @@ class Namensdienst:
                 # Kopie erstellen, damit während des Iterierens gelöscht werden kann
                 for worker in self.workers[:]:
                     elapsed = now - worker.lastHeartbeat
-
+                    if elapsed >= x:
+                        worker.status = "UNHEALTHY"
+                        print(f"Worker {worker.id} wurde UNHEALTHY gesetzt")
+                        #log_event(logger, "warning", "NAMESERVICE_worker_unhealthy", worker_id=worker.id)
+                        logger.info(f"Worker {worker.id} wurde UNHEALTHY gesetzt")
                     if elapsed >= x * y:
                         worker.status = "OFFLINE"
                         self.workers.remove(worker)
@@ -126,11 +130,6 @@ class Namensdienst:
                         #log_event(logger, "warning", "NAMESERVICE_worker_offline", worker_id=worker.id)
                         logger.info(f"Worker {worker.id} wurde OFFLINE gesetzt")
 
-                    elif elapsed >= x:
-                        worker.status = "UNHEALTHY"
-                        print(f"Worker {worker.id} wurde UNHEALTHY gesetzt")
-                        #log_event(logger, "warning", "NAMESERVICE_worker_unhealthy", worker_id=worker.id)
-                        logger.info(f"Worker {worker.id} wurde UNHEALTHY gesetzt")
 
                 time.sleep(1)
 
