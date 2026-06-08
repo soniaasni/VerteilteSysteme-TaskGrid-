@@ -1,1 +1,162 @@
 \section{Buildprozess}
+\label{sec:buildprozess}
+
+Das gesamte System wird über Docker und Docker Compose gebaut und betrieben.
+Jede Komponente besitzt ein eigenes Dockerfile, das das zugehörige Image definiert.
+Docker Compose orchestriert alle Komponenten gemeinsam und kümmert sich um
+Netzwerkkonfiguration, Startreihenfolge und Health-Checks.
+
+\subsection{Verzeichnisstruktur und Dockerfiles}
+
+Die Dockerfiles liegen direkt bei den jeweiligen Komponenten:
+
+\begin{lstlisting}[language={},caption={Verzeichnisstruktur der Dockerfiles}]
+VerteilteSysteme-TaskGrid-/
+  Dockerfile                    -- Dispatcher
+  src/
+    namensdienst/
+      Dockerfile                -- Namensdienst
+    worker/
+      Dockerfile                -- Alle Worker-Typen
+      entrypoint.sh             -- Worker-Startskript (setzt Env-Vars)
+    client/
+      Dockerfile                -- Client
+  docker-compose.yml            -- Orchestrierung aller Dienste
+\end{lstlisting}
+
+\subsection{Dispatcher-Image}
+
+Das Dispatcher-Dockerfile liegt im Wurzelverzeichnis des Projekts.
+Es basiert auf \texttt{python:3.11-slim} und installiert alle Python-Abhängigkeiten
+aus \texttt{requirements.txt}. Die Proto-Stubs (\texttt{proto/}) sowie der
+gesamte Quellcode werden in den Container kopiert.
+
+\begin{lstlisting}[language=bash,caption={Image manuell bauen (optional)}]
+docker build -t taskgrid-dispatcher .
+\end{lstlisting}
+
+\subsection{Namensdienst-Image}
+
+Der Namensdienst hat ein eigenes Dockerfile unter \texttt{src/namensdienst/Dockerfile}.
+Es setzt den Python-Pfad so, dass sowohl \texttt{src/} als auch \texttt{proto/}
+importierbar sind. Die Umgebungsvariable \texttt{PYTHONUNBUFFERED=1} sorgt dafür,
+dass Log-Ausgaben sofort in \texttt{docker logs} erscheinen und nicht gepuffert werden.
+
+\subsection{Worker-Image und Entrypoint}
+
+Alle Worker-Typen teilen sich ein einziges Dockerfile unter \texttt{src/worker/Dockerfile}.
+Was einen \texttt{worker-sum} von einem \texttt{worker-reverse} unterscheidet,
+ist ausschließlich die Umgebungsvariable \texttt{WORKER\_TYPE}, die beim Start
+in der \texttt{docker-compose.yml} gesetzt wird.
+
+Das Startskript \texttt{entrypoint.sh} übernimmt dabei eine wichtige Aufgabe:
+Es übersetzt die generische Variable \texttt{WORKER\_TYPE} in die für den Worker
+nötigen spezifischen Variablen und generiert eine eindeutige Worker-ID aus Typ
+und Hostname des Containers:
+
+\begin{lstlisting}[language=bash,caption={Auszug aus entrypoint.sh}]
+export TASK_TYPES="${WORKER_TYPE}"
+export NAMING_SERVICE_ADDRESS="${NAMENSDIENST_ADDRESS}"
+export WORKER_ID="worker-${WORKER_TYPE}-$(hostname)"
+exec python src/worker/worker.py
+\end{lstlisting}
+
+Durch den hostname-basierten Anteil der Worker-ID sind alle Instanzen desselben
+Worker-Typs eindeutig identifizierbar. Auch wenn drei \texttt{worker-sum}-Container
+gleichzeitig laufen.
+
+\subsection{docker-compose.yml}
+
+Die \texttt{docker-compose.yml} im Wurzelverzeichnis definiert alle acht Dienste
+des Systems und legt fest, wie sie miteinander kommunizieren:
+
+\begin{lstlisting}[language=yaml,caption={Dienste in docker-compose.yml}]
+services:
+  namensdienst     # Service Discovery (startet zuerst)
+  dispatcher       # Aufgabenverwaltung und Dispatch
+  worker-sum       # Worker fuer Typ "sum"   (skalierbar)
+  worker-reverse   # Worker fuer Typ "reverse"
+  worker-hash      # Worker fuer Typ "hash"
+  worker-upper     # Worker fuer Typ "upper"
+  worker-wait      # Worker fuer Typ "wait"
+  client           # Demo-Client (One-Shot)
+\end{lstlisting}
+
+\subsubsection*{Startreihenfolge und Health-Checks}
+
+Damit die Komponenten in der richtigen Reihenfolge hochfahren, ist jeder Dienst
+mit einem \texttt{healthcheck} ausgestattet. Der Health-Check öffnet eine
+TCP-Verbindung auf den gRPC-Port. Das ist deutlich zuverlässiger als nur zu
+prüfen, ob der Prozess läuft, weil damit sichergestellt ist, dass der gRPC-Server
+tatsächlich Verbindungen annimmt.
+
+\begin{lstlisting}[language=yaml,caption={Health-Check (Beispiel Namensdienst)}]
+healthcheck:
+  test: ["CMD", "python", "-c",
+         "import socket; s=socket.socket(); s.settimeout(2);
+          s.connect(('localhost',50052)); s.close()"]
+  interval: 5s
+  timeout: 3s
+  retries: 12
+  start_period: 5s
+\end{lstlisting}
+
+Die \texttt{depends\_on}-Bedingungen nutzen \texttt{condition: service\_healthy},
+sodass Docker Compose erst dann mit dem nächsten Dienst weitermacht, wenn der
+vorherige seinen Health-Check bestanden hat.
+
+\subsubsection*{Netzwerk}
+
+Alle Dienste sind in einem gemeinsamen Bridge-Netzwerk namens \texttt{taskgrid}
+verbunden. Innerhalb dieses Netzwerks können Dienste sich gegenseitig über ihren
+Service-Namen erreichen \texttt{Dispatcher} löst also zu der Container-IP des
+Dispatchers auf, \texttt{namensdienst} entsprechend zum Namensdienst-Container.
+Nach außen sind nur der Dispatcher (Ports 50051 und 8080) und der Namensdienst
+(Port 50052) exponiert.
+
+\subsubsection*{Volumes}
+
+Laut Aufgabenstellung dürfen gemeinsame Volumes nicht für die Task- oder
+Ergebnis-Übergabe genutzt werden. Das einzige Volume im System ist deshalb
+\texttt{logs}, das die strukturierten Log-Dateien des Dispatchers und Clients
+über Container-Neustarts hinaus persistiert.
+
+\subsubsection*{Konfiguration über Umgebungsvariablen}
+
+Alle Dienste werden ausschließlich über Umgebungsvariablen konfiguriert,
+keine Konfigurationsdatei wird gemountet. Das macht es möglich, das Verhalten
+einzelner Dienste zu ändern, ohne Images neu zu bauen. Zum Beispiel den
+Heartbeat-Timeout des Namensdiensts für Tests auf einen niedrigeren Wert zu setzen:
+
+\begin{lstlisting}[language=yaml,caption={Konfiguration des Namensdiensts (Ausschnitt)}]
+environment:
+  - NAMESERVICE_PORT=50052
+  - HEARTBEAT_TIMEOUT_SECONDS=15
+  - HEARTBEAT_CHECK_INTERVAL_SECONDS=5
+  - PYTHONUNBUFFERED=1
+\end{lstlisting}
+
+\subsection{Skalierung einzelner Worker-Typen}
+
+Da die Worker-Container keinen \texttt{container\_name} haben, kann Docker Compose
+mehrere Instanzen desselben Dienstes starten. Dabei vergibt Docker automatisch
+eindeutige Container-Namen. Der interne DNS-Name (\texttt{worker-sum}) bleibt
+für alle Instanzen gleich. Docker Compose löst ihn per Round-Robin auf alle
+laufenden Instanzen auf:
+
+\begin{lstlisting}[language=bash,caption={Worker-Typ skalieren}]
+docker compose up --build -d --scale worker-sum=3
+\end{lstlisting}
+
+Jede der drei \texttt{worker-sum}-Instanzen registriert sich beim Namensdienst
+mit einer eigenen Worker-ID. Der Dispatcher bekommt bei \texttt{LookupWorker}
+alle drei zurück und verteilt Tasks gleichmäßig auf sie. Ohne dass am
+Dispatcher oder Namensdienst irgendetwas konfiguriert werden muss.
+
+\subsection{Reproducibility}
+
+Damit der Build auf verschiedenen Rechnern reproduzierbar ist, werden die
+Python-Abhängigkeiten über \texttt{requirements.txt}-Dateien gepinnt.
+Die Proto-Stubs werden nicht dynamisch generiert, sondern als fertige
+\texttt{*\_pb2.py}-Dateien im Repository eingecheckt. Das verhindert, dass
+unterschiedliche \texttt{grpcio-tools}-Versionen zu inkompatiblen Stubs führen.

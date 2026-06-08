@@ -5,7 +5,10 @@
 
 Der Dispatcher ist die zentrale Koordinationskomponente des TaskGrid+{}-Systems.
 Er nimmt Tasks von Clients entgegen, verwaltet ihren Lebenszyklus vollständig,
-koordiniert die Zuweisung an Worker und stellt Ergebnisse bereit.
+koordiniert die Zuweisung an Worker und stellt Ergebnisse bereit. Dabei arbeitet
+er vollständig zustandslos gegenüber dem Client. Dieser sendet einen Task und
+fragt später per Task-ID das Ergebnis ab, ohne wissen zu müssen, welcher Worker
+die Aufgabe übernommen hat.
 
 \begin{table}[H]
 \centering
@@ -13,24 +16,24 @@ koordiniert die Zuweisung an Worker und stellt Ergebnisse bereit.
 \toprule
 \textbf{Verantwortlichkeit} & \textbf{Umsetzung} \\
 \midrule
-Tasks empfangen und validieren             & \texttt{PostTask} (Issue \#13) \\
-Tasks in Warteschlange einreihen           & \texttt{TaskQueue} (Issue \#21) \\
-Worker über Namensdienst auflösen          & \texttt{NamensdienstClient} (Issue \#14) \\
-Tasks an Worker dispatchen                 & \texttt{DispatchLoop} (Issue \#15) \\
-Ergebnisse von Workern empfangen           & \texttt{ReturnResult} (Issue \#16) \\
-Ergebnisse an Clients ausliefern           & \texttt{GetResult} (Issue \#17) \\
-Timeouts erkennen und Retries steuern      & \texttt{DispatchLoop} (Issue \#18) \\
-Strukturierte Logs schreiben               & \texttt{logger.py} (Issue \#19) \\
-Monitoring-Status bereitstellen            & \texttt{StatusCollector} (Issue \#20) \\
-Nebenläufigkeit und Race Conditions        & Locking-Strategie (Issue \#21) \\
+Tasks empfangen und validieren             & \texttt{PostTask} \\
+Tasks in Warteschlange einreihen           & \texttt{TaskQueue} \\
+Worker über Namensdienst auflösen          & \texttt{NamensdienstClient} \\
+Tasks an Worker dispatchen                 & \texttt{DispatchLoop} \\
+Ergebnisse von Workern empfangen           & \texttt{ReturnResult} \\
+Ergebnisse an Clients ausliefern           & \texttt{GetResult} \\
+Timeouts erkennen und Retries steuern      & \texttt{DispatchLoop} \\
+Strukturierte Logs schreiben               & \texttt{logger.py} \\
+Monitoring-Status bereitstellen            & \texttt{StatusCollector} \\
+Nebenläufigkeit und Race Conditions        & Locking-Strategie \\
 \bottomrule
 \end{tabular}
-\caption{Dispatcher -- Verantwortlichkeiten nach Issue}
+\caption{Dispatcher -- Verantwortlichkeiten im Überblick}
 \end{table}
 
 \subsection{Komponentenarchitektur}
 
-Der Dispatcher besteht aus sechs klar getrennten Modulen, die zusammen den
+Der Dispatcher besteht aus mehreren klar getrennten Modulen, die zusammen den
 vollständigen Task-Lebenszyklus abdecken:
 
 \begin{lstlisting}[language={},caption={Dispatcher-Komponenten (src/dispatcher/)}]
@@ -70,27 +73,9 @@ initialisiert und gestartet:
 
 Das gemeinsame Nachrichtenformat ist in \texttt{proto/taskgrid.proto}
 (proto3) definiert. Da der Worker-Code eigene Proto-Stubs mitbringt,
-wurden alle Dispatcher-Proto-Definitionen auf Konventionen abgestimmt:
+wurden alle Dispatcher-Proto-Definitionen auf die Worker-Konventionen abgestimmt.
 
-\begin{table}[H]
-\centering
-\begin{tabular}{lll}
-\toprule
-\textbf{Aspect} & \textbf{Worker-Konvention} & \textbf{Dispatcher-intern} \\
-\midrule
-Task-ID im Proto      & \texttt{int32 task\_id}      & \texttt{str} (thread-sicherer Zähler) \\
-Task-Payload-Feld     & \texttt{task\_payload}       & \texttt{task.payload} \\
-Ergebnis-Methode      & \texttt{ReturnResult}        & \texttt{ReturnResult} \\
-Status-Felder         & \texttt{status="COMPLETED"/"FAILED"} & \texttt{TaskState}-Enum \\
-Fehlerfeld            & \texttt{error}               & \texttt{error} \\
-ACK-Feld              & \texttt{Ack.success} (bool)  & \texttt{Ack.success} \\
-Namensdienst-Service  & \texttt{NamingService}       & \texttt{NamingServiceStub} \\
-\bottomrule
-\end{tabular}
-\caption{Proto-Kompatibilität Dispatcher/Worker}
-\end{table}
-
-Die Konvertierung erfolgt ausschließlich an der gRPC-Grenze:
+Die Konvertierung zwischen den Typen erfolgt ausschließlich an der gRPC-Grenze:
 \begin{lstlisting}[language=Python,caption={int32-Konvertierung an der gRPC-Grenze}]
 # Eingehend (int32 -> str):
 task_id = str(request.task_id)   # in ReturnResult, GetResult
@@ -102,12 +87,15 @@ return taskgrid_pb2.TaskResponse(
 )
 \end{lstlisting}
 
-\subsection{Issue \#13: POST\_TASK -- Aufgaben empfangen}
+\subsection{POST\_TASK -- Aufgaben empfangen}
 \label{sec:post-task}
 
 \texttt{PostTask} ist die Eingangsschnittstelle für Clients.
 Die Implementierung in \texttt{servicer.py} durchläuft drei Validierungsstufen,
-bevor der Task akzeptiert wird:
+bevor der Task akzeptiert wird. Zunächst wird geprüft, ob ein Task-Typ angegeben
+ist, danach ob Typ und Payload die erlaubten Längengrenzen einhalten. Erst wenn
+alle Prüfungen bestanden sind, wird dem Task eine eindeutige ID vergeben und er
+in Speicher und Warteschlange eingereiht:
 
 \begin{lstlisting}[language=Python,caption={PostTask -- Validierung und Einreihung}]
 # 1. Validierung
@@ -132,26 +120,29 @@ self._queue.enqueue(task)
 
 # 3. Antwort
 return taskgrid_pb2.TaskResponse(
-    task_id=int(task_id),          # int32 fuer Elena-Kompatibilitaet
+    task_id=int(task_id),          # int32 fuer Worker-Kompatibilitaet
     status=TaskState.QUEUED.value,
 )
 \end{lstlisting}
 
-\textbf{Alle drei Fehlerfälle} sind durch Integration Tests abgedeckt und
-werden im Testprotokoll dokumentiert (Abschnitt~\ref{sec:tests}).
+Alle drei Fehlerfälle sind durch Integrationstests abgedeckt und werden im
+Testprotokoll dokumentiert.
 
-\subsection{Issue \#14: Worker-Lookup und Round-Robin}
+\subsection{Worker-Lookup und Round-Robin}
 \label{sec:worker-lookup}
 
-Der Dispatcher löst Worker-Adressen \textbf{ausschließlich dynamisch} auf.
+Der Dispatcher löst Worker-Adressen ausschließlich dynamisch auf.
 Statische Adressen existieren nirgends im Code oder in Konfigurationsdateien.
+Das ist eine zentrale Anforderung der Aufgabenstellung und wurde konsequent
+umgesetzt.
 
 \subsubsection*{Namensdienst-Client}
 
-\texttt{NamensdienstClient} kapselt alle gRPC-Aufrufe an den Namensdienst.
+Der \texttt{NamensdienstClient} kapselt alle gRPC-Aufrufe an den Namensdienst.
 Die Methode \texttt{lookup\_worker()} ist defensiv implementiert:
-Bei Netzwerkfehlern oder Timeout gibt sie eine leere Liste zurück
-(kein Absturz, kein Exception-Propagation):
+Bei Netzwerkfehlern oder Timeout gibt sie eine leere Liste zurück,
+anstatt eine Exception zu werfen. Der Dispatcher behandelt diesen Fall
+wie "`kein Worker verfügbar"' und plant den Task nach kurzer Wartezeit erneut ein:
 
 \begin{lstlisting}[language=Python,caption={Fehlertoleranter LookupWorker-Aufruf}]
 try:
@@ -166,9 +157,10 @@ except grpc.RpcError as e:
 
 \subsubsection*{Round-Robin-Selektor}
 
-Wenn mehrere Worker für einen Task-Typ verfügbar sind, wählt
-\texttt{RoundRobinSelector} einen per Round-Robin aus (ADR-003).
-Pro Task-Typ wird ein unabhängiger Zähler geführt:
+Wenn mehrere Worker für einen Task-Typ verfügbar sind, wählt der
+\texttt{RoundRobinSelector} einen davon per Round-Robin aus (ADR-003).
+Pro Task-Typ wird ein unabhängiger Zähler geführt, der bei jeder Auswahl
+inkrementiert wird:
 
 \begin{lstlisting}[language=Python,caption={Round-Robin-Auswahl (worker\_selector.py)}]
 with self._lock:
@@ -178,16 +170,18 @@ return workers[idx]
 \end{lstlisting}
 
 Bei 3 Workern ergibt sich die Sequenz: w1, w2, w3, w1, w2, w3, \ldots{}
-Der Counter ist thread-sicher (Lock) und wurde durch 1000 parallele
+Der Zähler ist thread-sicher (Lock) und wurde durch 1000 parallele
 Selektionen auf Korrektheit und gleichmäßige Verteilung getestet.
 
-\subsection{Issue \#15/\#16: Dispatch-Loop und RESULT\_RETURN}
+\subsection{Dispatch-Loop und RESULT\_RETURN}
 \label{sec:dispatch-loop}
 
 \subsubsection*{Dispatch-Loop}
 
 Der \texttt{DispatchLoop} läuft als Daemon-Thread (\texttt{threading.Thread})
-und übernimmt den gesamten Dispatch-Ablauf:
+und übernimmt den gesamten Dispatch-Ablauf. Er wartet blockierend auf den
+nächsten Task aus der Queue, liest den frischen Zustand aus dem Store und
+übergibt ihn dann an einen Thread-Pool-Executor für die eigentliche Übermittlung:
 
 \begin{enumerate}
   \item \texttt{dequeue(timeout=1.0)}: Blockierendes Warten auf nächsten Task.
@@ -195,31 +189,33 @@ und übernimmt den gesamten Dispatch-Ablauf:
   \item Task an \texttt{ThreadPoolExecutor(max\_workers=10)} übergeben.
 \end{enumerate}
 
-Im Executor-Thread (\texttt{\_dispatch()}):
+Im Executor-Thread läuft dann der eigentliche Dispatch-Vorgang ab:
 
 \begin{enumerate}
   \item \texttt{lookup\_worker()} am Namensdienst aufrufen.
-  \item Falls kein Worker: \texttt{time.sleep(DISPATCH\_NO\_WORKER\_RETRY\_SECS)},
-        Task re-enqueuen, Thread beenden.
+  \item Falls kein Worker verfügbar: kurz warten (\texttt{DISPATCH\_NO\_WORKER\_RETRY\_SECS}),
+        Task re-enqueuen und Thread beenden.
   \item Zustandsübergang: QUEUED/RETRYING $\rightarrow$ DISPATCHED.
   \item Timeout-Timer starten (\texttt{threading.Timer}).
-  \item \texttt{ExecuteTask} per gRPC an Worker senden (\texttt{worker\_client.py}).
+  \item \texttt{ExecuteTask} per gRPC an den ausgewählten Worker senden.
   \item Bei Akzeptanz (ACK ok): DISPATCHED $\rightarrow$ PROCESSING.
-        \textbf{Timer läuft weiter} bis \texttt{ReturnResult} eintrifft.
-  \item Bei Ablehnung/Netzwerkfehler: Timer abbrechen,
+        \textbf{Der Timer läuft weiter} bis \texttt{ReturnResult} eintrifft.
+  \item Bei Ablehnung oder Netzwerkfehler: Timer abbrechen,
         DISPATCHED $\rightarrow$ FAILED.
 \end{enumerate}
 
-\subsubsection*{Wichtige Design-Entscheidung: Timer-Lifetime}
+\subsubsection*{ Timer-Lifetime}
 
-Ein häufiger Fehler in der Implementierung wäre, den Timeout-Timer
-bereits bei Worker-Akzeptanz abzubrechen.
-Der Timer läuft absichtlich weiter:
+Ein häufiger Implementierungsfehler wäre, den Timeout-Timer bereits bei
+Worker-Akzeptanz abzubrechen. Der Timer läuft hier bewusst weiter, weil
+der Worker zwar bestätigt hat, die Aufgabe entgegenzunehmen, aber noch kein
+Ergebnis geliefert hat. Erst wenn \texttt{ReturnResult} eintrifft, wird der
+Timer gecancelt:
 
 \begin{lstlisting}[language=Python,caption={Korrekte Timer-Behandlung in \_dispatch()}]
 if success:
     # Worker hat Task akzeptiert -> DISPATCHED -> PROCESSING
-    # Timer laeuft weiter bis ReturnResult eintrifft (Issue #18)
+    # Timer laeuft weiter bis ReturnResult eintrifft
     transition(task, TaskState.PROCESSING)
     self._store.update(task)
 else:
@@ -228,13 +224,10 @@ else:
     transition(task, TaskState.FAILED)
 \end{lstlisting}
 
-Dieser Fehler wurde durch die Integrations-Tests aufgedeckt
-(Abschnitt~\ref{sec:bugfix-timer}).
-
-\subsubsection*{ReturnResult (Issue \#16)}
+\subsubsection*{ReturnResult}
 
 Wenn ein Worker ein Ergebnis zurücksendet, ruft er \texttt{ReturnResult} auf dem
-Dispatcher auf. Die Implementierung behandelt drei Sonderfälle:
+Dispatcher auf. Die Implementierung behandelt dabei drei wichtige Sonderfälle:
 
 \begin{table}[H]
 \centering
@@ -243,16 +236,16 @@ Dispatcher auf. Die Implementierung behandelt drei Sonderfälle:
 \textbf{Sonderfall} & \textbf{Reaktion} & \textbf{Begründung} \\
 \midrule
 Unbekannte \texttt{task\_id}  & \texttt{Ack(success=False)} & Task existiert nicht \\
-Task bereits terminal & \texttt{Ack(success=True)}, ignorieren & Idempotenz (§5) \\
+Task bereits terminal & \texttt{Ack(success=True)}, ignorieren & Idempotenz \\
 Ungültiger Übergang & \texttt{Ack(success=False)}, Log-Error & Race Condition \\
 \bottomrule
 \end{tabular}
-\caption{ReturnResult -- Sonderfallbehandlung}
+\caption{ReturnResult -- Behandlung von Sonderfällen}
 \end{table}
 
 Die Idempotenz ist besonders wichtig: Ein Worker könnte nach einem Retry
-ein verspätetes Ergebnis senden. Der Task ist dann bereits \texttt{FAILED}
-(Terminal). Das verspätete Ergebnis wird ignoriert.
+ein verspätetes Ergebnis senden. Der Task wäre dann schon auf \texttt{FAILED}
+gesetzt. Das verspätete Ergebnis wird in diesem Fall still ignoriert.
 
 \begin{lstlisting}[language=Python,caption={ReturnResult -- Idempotenz und Timer-Cancel}]
 if is_terminal(task):
@@ -265,24 +258,25 @@ new_state = TaskState.COMPLETED if request.status == "COMPLETED" \
             else TaskState.FAILED
 transition(task, new_state)
 task.result = request.result if request.status == "COMPLETED" \
-              else request.error   # Elena: error statt error_msg
+              else request.error
 self._store.update(task)
 \end{lstlisting}
 
-\subsection{Issue \#17: GET\_RESULT -- Ergebnis abfragen}
+\subsection{GET\_RESULT -- Ergebnis abfragen}
 \label{sec:get-result}
 
-\texttt{GetResult} liefert den aktuellen Zustand und das Ergebnis eines Tasks:
+\texttt{GetResult} liefert den aktuellen Zustand und das Ergebnis eines Tasks.
+Die Schnittstelle ist bewusst einfach gehalten und für Polling-Betrieb ausgelegt:
 
 \begin{itemize}
   \item Unbekannte \texttt{task\_id}: gRPC-Code \texttt{NOT\_FOUND}.
-  \item Task nicht terminal: Status-Wert zurückgeben, \texttt{result=""}.
-  \item Task \texttt{COMPLETED}: Status + Ergebnis zurückgeben.
-  \item Task \texttt{FAILED}: Status + Fehlermeldung in \texttt{result}.
+  \item Task noch nicht terminal: Aktuellen Status zurückgeben, \texttt{result=""}.
+  \item Task \texttt{COMPLETED}: Status und Ergebnis zurückgeben.
+  \item Task \texttt{FAILED}: Status und Fehlermeldung im Ergebnisfeld.
 \end{itemize}
 
-Der Client kann \texttt{GetResult} mehrfach aufrufen (Polling) bis der
-Status terminal ist. Ein Beispiel-Polling-Loop:
+Der Client kann \texttt{GetResult} beliebig oft aufrufen, bis der Status terminal ist.
+Ein typischer Polling-Loop sieht so aus:
 
 \begin{lstlisting}[language=Python,caption={Client-seitiges Polling (Beispiel)}]
 while True:
@@ -292,13 +286,14 @@ while True:
     time.sleep(1.0)
 \end{lstlisting}
 
-\subsection{Issue \#18: Timeout und Retry-Logik}
+\subsection{Timeout und Retry-Logik}
 \label{sec:timeout-retry}
 
 \subsubsection*{Funktionsweise}
 
 Für jeden dispatchen Task startet ein \texttt{threading.Timer}.
-Feuert der Timer, läuft folgender Callback ab:
+Feuert der Timer, ohne dass vorher ein \texttt{ReturnResult} eingegangen ist,
+läuft folgender Callback ab:
 
 \begin{lstlisting}[language=Python,caption={Timeout-Callback (\_on\_timeout)}]
 def _on_timeout():
@@ -339,10 +334,13 @@ DISPATCHED  FAILED
 (retry_count  (retry_count
  < MAX)        >= MAX)
 \end{lstlisting}
-\caption{Zustandsübergänge bei Timeout (Issue \#18)}
+\caption{Zustandsübergänge bei Timeout}
 \end{figure}
 
 \subsubsection*{Konfigurierbare Parameter}
+
+Alle Timeout- und Retry-Parameter lassen sich über Umgebungsvariablen anpassen,
+ohne den Code zu ändern:
 
 \begin{table}[H]
 \centering
@@ -355,31 +353,22 @@ DISPATCHED  FAILED
 \texttt{DISPATCH\_NO\_WORKER\_RETRY\_SECONDS} & 2 & Wartezeit wenn kein Worker verfügbar \\
 \bottomrule
 \end{tabular}
-\caption{Timeout-Konfiguration (Issue \#18)}
+\caption{Timeout-Konfiguration}
 \end{table}
 
-\subsubsection*{Behobener Bug (Integration Test)}
-\label{sec:bugfix-timer}
-
-Der Integration Test deckte auf, dass der Timer ursprünglich bei Worker-Akzeptanz
-gecancelt wurde (falscher Implementierungsstand).
-Außerdem fehlte \texttt{PROCESSING $\rightarrow$ TIMEOUT} als erlaubter Übergang
-in der Zustandsmaschine. Beide Fehler wurden im Zuge der Integrationstests
-behoben und sind in der State-Machine dokumentiert.
-
-\subsection{Issue \#19: Strukturiertes Logging}
+\subsection{Strukturiertes Logging}
 \label{sec:logging}
 
 Alle Komponenten des Dispatchers nutzen das zentrale Modul
 \texttt{src/common/logger.py}.
 \newpage
 \subsubsection*{Log-Format}
-\begin{lstlisting}[language={},caption={Strukturiertes Log-Format (§13)}]
+\begin{lstlisting}[language={},caption={Strukturiertes Log-Format}]
 [component] request_id=X task_id=Y event=Z key=value key=value
 \end{lstlisting}
 
-Pflichtfelder bei jedem Event: \texttt{request\_id}, \texttt{task\_id}, \texttt{event}.
-Weitere Key-Value-Paare je nach Kontext.
+Pflichtfelder bei jedem Event sind \texttt{request\_id}, \texttt{task\_id} und \texttt{event}.
+Weitere Key-Value-Paare werden je nach Kontext ergänzt.
 
 \textbf{Beispiele aus dem laufenden System:}
 
@@ -411,26 +400,27 @@ Weitere Key-Value-Paare je nach Kontext.
 
 Wenn die Umgebungsvariable \texttt{LOG\_DIR} gesetzt ist, schreibt jeder Logger
 zusätzlich in eine Datei \texttt{LOG\_DIR/<component>.log} mit Timestamps.
-In docker-compose.yml ist \texttt{LOG\_DIR=/app/logs} gesetzt,
+In der \texttt{docker-compose.yml} ist \texttt{LOG\_DIR=/app/logs} konfiguriert;
 das \texttt{logs}-Volume persistiert die Dateien über Container-Neustarts hinaus.
 
 \subsubsection*{Propagation-Problem und Lösung}
 
-Python-Logger propagieren Nachrichten standardmäßig aufwärts.
+Python-Logger propagieren Nachrichten standardmäßig aufwärts im Logger-Baum.
 Bei verschachtelten Loggern (\texttt{dispatcher.dispatch\_loop} $\rightarrow$
-\texttt{dispatcher} $\rightarrow$ root) würde jeder Eintrag mehrfach ausgegeben.
-Behoben durch \texttt{logger.propagate = False} in \texttt{get\_logger()}.
+\texttt{dispatcher} $\rightarrow$ root) würde jeder Eintrag dadurch mehrfach
+ausgegeben. Das Problem wurde durch \texttt{logger.propagate = False}
+in \texttt{get\_logger()} gelöst.
 
-\subsection{Issue \#20: GET\_STATUS -- Monitoring}
+\subsection{GET\_STATUS -- Monitoring}
 \label{sec:get-status}
 
 \subsubsection*{HTTP-Endpoint (primär)}
 
 Der Dispatcher startet beim Hochfahren einen \texttt{HttpStatusServer}-Thread
-(Port \texttt{STATUS\_HTTP\_PORT}, default 8080).
-Aufruf: \texttt{curl http://localhost:8080/status}
+auf Port \texttt{STATUS\_HTTP\_PORT} (Standard: 8080).
+Der Endpoint lässt sich direkt mit \texttt{curl http://localhost:8080/status} abfragen.
 
-Die Antwort ist ein JSON-Objekt mit allen neun Pflichtfeldern aus der Aufgabenstellung:
+Die Antwort enthält alle neun Pflichtfelder der Aufgabenstellung als JSON:
 
 \begin{lstlisting}[language={},caption={GET /status -- Beispielantwort}]
 {
@@ -462,33 +452,27 @@ Die Antwort ist ein JSON-Objekt mit allen neun Pflichtfeldern aus der Aufgabenst
 \texttt{fehlgeschlagene\_tasks}  & TaskStore: Count(FAILED + TIMEOUT) \\
 \path{durchschnittliche_bearbeitungszeit_ms} & Ø (timestamp\_completed - timestamp\_dispatched) × 1000 \\
 \texttt{anzahl\_timeouts}        & Summe aller \texttt{task.retry\_count} \\
-\texttt{anzahl\_retries}         & Identisch (jeder Retry durch Timeout ausgelöst) \\
+\texttt{anzahl\_retries}         & Identisch (jeder Retry wird durch Timeout ausgelöst) \\
 \bottomrule
 \end{tabular}
-\caption{Monitoring-Felder und ihre Datenquellen (Issue \#20)}
+\caption{Monitoring-Felder und ihre Datenquellen}
 \end{table}
 
 \subsubsection*{gRPC GetStatus (sekundär)}
 
 Zusätzlich zum HTTP-Endpoint ist \texttt{GetStatus} in der gRPC-Schnittstelle
-implementiert. Er gibt \texttt{queued\_tasks}, \texttt{active\_workers}
+implementiert. Er gibt \texttt{queued\_tasks} und \texttt{active\_workers}
 direkt als Proto-Felder zurück sowie das vollständige JSON als
-\texttt{details}-String -- ohne Proto-Schemaänderung.
+\texttt{details}-String. Ohne dass das Proto-Schema dafür geändert werden muss.
 
-\subsubsection*{Designentscheidung (ADR-006)}
-
-HTTP wurde gegenüber einer Proto-Erweiterung bevorzugt,
-da §8 der Aufgabenstellung keine Proto-Änderungen für Monitoring erzwingt,
-HTTP universell mit \texttt{curl} oder Browser abrufbar ist,
-und die Elena-Proto-Kompatibilität damit vollständig erhalten bleibt
-(kein Regenerierungsrisiko).
-
-\subsection{Issue \#21: Queue-Verwaltung und Nebenläufigkeit}
+\subsection{Queue-Verwaltung und Nebenläufigkeit}
 \label{sec:concurrency}
 
 \subsubsection*{Thread-Modell des Dispatchers}
 
-Im Betrieb laufen mindestens vier Thread-Typen parallel:
+Im Betrieb laufen mindestens vier verschiedene Thread-Typen parallel.
+Das ist unvermeidlich, weil Clients Tasks einreichen, der DispatchLoop sie verteilt,
+Worker-Antworten asynchron eintreffen und Timeouts unabhängig feuern können:
 
 \begin{table}[H]
 \centering
@@ -499,16 +483,18 @@ Im Betrieb laufen mindestens vier Thread-Typen parallel:
 gRPC-Server-Threads    & bis 10 & PostTask, ReturnResult, GetResult bedienen \\
 DispatchLoop-Thread    & 1      & Queue lesen, Executor befüllen \\
 Executor-Threads       & bis 10 & ExecuteTask an Worker senden \\
-Timeout-Timer-Threads  & 1 pro task & Nach DISPATCH\_TIMEOUT\_SECONDS feuern \\
+Timeout-Timer-Threads  & 1 pro Task & Nach DISPATCH\_TIMEOUT\_SECONDS feuern \\
 HTTP-Server-Thread     & 1      & GET /status bedienen \\
 \bottomrule
 \end{tabular}
 \caption{Thread-Modell des Dispatchers}
 \end{table}
 
-\subsubsection*{Locking-Strategie (ADR-007)}
+\subsubsection*{Locking-Strategie}
 
-Jede geteilte Datenstruktur schützt sich selbst:
+Jede geteilte Datenstruktur schützt sich selbst, anstatt auf einen zentralen Lock
+zu setzen. Das verhindert Deadlocks und macht die Thread-Sicherheitsgarantien
+lokal nachvollziehbar:
 
 \begin{itemize}
   \item \textbf{TaskStore}: \texttt{threading.Lock()} auf allen Methoden.
@@ -519,14 +505,14 @@ Jede geteilte Datenstruktur schützt sich selbst:
   \item \textbf{RoundRobinSelector}: \texttt{threading.Lock()} auf dem
         Read-Modify-Write-Zähler.
   \item \textbf{new\_task\_id()}: \texttt{threading.Lock()} auf globalem Zähler.
-  \item \textbf{\_timers-Dict}: \texttt{\_timers\_lock} verhindert Race zwischen
-        Timer-Start (Executor-Thread) und Timer-Cancel (gRPC-Thread).
+  \item \textbf{\_timers-Dict}: \texttt{\_timers\_lock} verhindert eine Race Condition
+        zwischen Timer-Start (Executor-Thread) und Timer-Cancel (gRPC-Thread).
 \end{itemize}
 
 \subsubsection*{Worker-Last-Tracking}
 
 \texttt{TaskStore.worker\_load\_map()} liefert einen Snapshot der aktuellen
-Auslastung pro Worker -- gezählt werden Tasks in DISPATCHED oder PROCESSING
+Auslastung pro Worker -- gezählt werden Tasks im Zustand DISPATCHED oder PROCESSING
 mit gesetztem \texttt{assigned\_worker}:
 
 \begin{lstlisting}[language=Python,caption={worker\_load\_map() -- aktive Tasks pro Worker}]
@@ -539,8 +525,8 @@ with self._lock:
     return load
 \end{lstlisting}
 
-Diese Methode wird vom \texttt{StatusCollector} für das Monitoring genutzt
-und im Integrations-Test auf Konsistenz unter Last geprüft.
+Diese Methode wird vom \texttt{StatusCollector} für das Monitoring genutzt und
+im Integrationstest auf Konsistenz unter Last geprüft.
 
 \subsubsection*{Nachgewiesene Thread-Sicherheit}
 
@@ -561,14 +547,11 @@ Concurrent PostTask (live) & Alle 100 Tasks gespeichert & 100 \\
 Concurrent ReturnResult (live) & Nur erster Wert gilt (Idempotenz) & 20 \\
 \bottomrule
 \end{tabular}
-\caption{Nebenläufigkeits-Tests (Issue \#21)}
+\caption{Nebenläufigkeits-Tests}
 \end{table}
 
-\subsection{ADR-004: Speicherung von Tasks und Ergebnissen}
+\subsection{Speicherung von Tasks und Ergebnissen}
 \label{sec:adr004}
-
-\textbf{Status}: Akzeptiert \quad
-\textbf{Betrifft}: \texttt{src/dispatcher/task\_store.py}
 
 \subsubsection*{Kontext}
 
@@ -578,49 +561,24 @@ Dateisysteme für die Task-Übergabe zu verwenden.
 
 \subsubsection*{Entscheidung}
 
-\textbf{In-Memory-Speicherung}: Alle Tasks in einem Python-\texttt{dict} im RAM.
-Kein externer Dienst, kein Docker-Volume für Task-Daten.
-
-\subsubsection*{Bewertete Alternativen}
-
-\begin{table}[H]
-\centering
-\begin{tabular}{lp{4.5cm}p{4.5cm}}
-\toprule
-\textbf{Alternative} & \textbf{Argument dagegen} & \textbf{Folge} \\
-\midrule
-SQLite/PostgreSQL &
-  §8 verbietet Shared-DB; externer Container; Latenz &
-  Abgelehnt \\
-Redis &
-  Weiterer Container; Serialisierung nötig; horizontale Skalierung des Dispatchers nicht gefordert &
-  Abgelehnt \\
-JSON-Datei &
-  §8: Volumes nur für Logs; atomares Schreiben komplex; doppeltes Locking &
-  Abgelehnt \\
-Hybrid (RAM + Snapshot) &
-  Kein klarer Anforderungs-Vorteil; Durability nicht gefordert &
-  Abgelehnt \\
-\textbf{In-Memory} (gewählt) &
-  -- &
-  Akzeptiert \\
-\bottomrule
-\end{tabular}
-\caption{ADR-004: Bewertete Alternativen für Task-Speicherung}
-\end{table}
+\textbf{In-Memory-Speicherung}: Alle Tasks werden in einem Python-\texttt{dict}
+im Arbeitsspeicher gehalten. Es gibt keinen externen Dienst und kein Docker-Volume
+für Task-Daten.
 
 \subsubsection*{Konsequenzen}
 
-Positiv: O(1)-Zugriff, keine Abhängigkeiten, konform mit §8,
-vollständig mock-testbar (95 Unit-Tests).
+Positiv: O(1)-Zugriff, keine externen Abhängigkeiten, vollständig konform mit §8
+und durch Unit-Tests vollständig mock-testbar.
 
-Negativ/Akzeptiert: Tasks gehen bei Dispatcher-Neustart verloren.
-Dies ist für den Studienkontext akzeptabel -- Durability ist keine Anforderung.
+Negativ/Akzeptiert: Tasks gehen bei einem Dispatcher-Neustart verloren.
+Das ist für den Studienkontext bewusst in Kauf genommen. Durability ist
+keine Anforderung dieser Aufgabe.
 
 \subsection{Konfigurationsreferenz}
 
 Alle Dispatcher-Parameter werden ausschließlich über Umgebungsvariablen
-konfiguriert. Dies ermöglicht die Anpassung ohne Code-Änderung:
+konfiguriert. Das ermöglicht es, das Verhalten des Dispatchers anzupassen,
+ohne irgendetwas im Code zu ändern:
 
 \begin{table}[H]
 \centering
@@ -651,14 +609,14 @@ konfiguriert. Dies ermöglicht die Anpassung ohne Code-Änderung:
 \toprule
 \textbf{Testdatei} & \textbf{Abdeckung} & \textbf{Tests} \\
 \midrule
-\texttt{test\_post\_task.py}       & Issue \#13: Validierung, Speicherung, Queue & 8 \\
-\texttt{test\_get\_result.py}      & Issue \#17: Alle Statuszustände, NOT\_FOUND & 8 \\
-\texttt{test\_receive\_result.py}  & Issue \#16: COMPLETED, FAILED, Idempotenz & 9 \\
-\texttt{test\_dispatch.py}         & Issue \#15: Dispatch-Flow, Timer, Retry & 13 \\
+\texttt{test\_post\_task.py}       & Validierung, Speicherung, Queue-Einreihung & 8 \\
+\texttt{test\_get\_result.py}      & Alle Statuszustände, NOT\_FOUND & 8 \\
+\texttt{test\_receive\_result.py}  & COMPLETED, FAILED, Idempotenz & 9 \\
+\texttt{test\_dispatch.py}         & Dispatch-Flow, Timer, Retry & 13 \\
 \texttt{test\_state\_machine.py}   & Alle 8 Zustände, Übergänge, Fehlerfälle & 14 \\
-\texttt{test\_logging.py}          & Issue \#19: Format, Datei-Logging & 13 \\
-\texttt{test\_get\_status.py}      & Issue \#20: Alle 9 Felder, gRPC + HTTP & 11 \\
-\texttt{test\_concurrency.py}      & Issue \#21: Race Conditions, Stress-Tests & 13 \\
+\texttt{test\_logging.py}          & Log-Format, Datei-Logging & 13 \\
+\texttt{test\_get\_status.py}      & Alle 9 Monitoring-Felder, gRPC + HTTP & 11 \\
+\texttt{test\_concurrency.py}      & Race Conditions, Stress-Tests & 13 \\
 \midrule
 \textbf{Gesamt}                    &                                           & \textbf{89} \\
 \bottomrule
@@ -666,17 +624,16 @@ konfiguriert. Dies ermöglicht die Anpassung ohne Code-Änderung:
 \caption{Dispatcher -- Unit-Test-Übersicht (89/89 bestanden)}
 \end{table}
 
-\subsubsection*{Integrations-Tests}
+\subsubsection*{Integrationstests}
 
-Das Skript \texttt{integration\_test.py} startet einen echten gRPC-Server
-und HTTP-Server (ohne Mocks) und führt 49 End-to-End-Tests durch:
-alle Issues \#13--\#21, Timeout-Szenarien mit echtem Timer,
-vollständiger Task-Durchlauf (QUEUED $\rightarrow$ COMPLETED).
+Das Skript \texttt{tests/test\_integration.py} startet einen echten gRPC-Server
+und HTTP-Server ohne Mocks und führt End-to-End-Tests durch, die alle wesentlichen
+Abläufe abdecken: Task-Einreichung und Validierung, Dispatch an Worker,
+Timeout-Szenarien mit echtem Timer sowie vollständige Task-Durchläufe von
+QUEUED bis COMPLETED.
 
-\textbf{Ergebnis}: 49/49 Tests bestanden.
-
-Dabei wurden zwei Implementierungsfehler entdeckt und behoben:
+Im Zuge dieser Tests wurden zwei Implementierungsfehler entdeckt und behoben:
 \begin{enumerate}
-  \item Timer wurde bei Worker-Akzeptanz gecancelt statt erst bei \texttt{ReturnResult}.
-  \item \texttt{PROCESSING $\rightarrow$ TIMEOUT} fehlte in der Zustandsmaschine.
+  \item Der Timer wurde bei Worker-Akzeptanz gecancelt statt erst bei \texttt{ReturnResult}.
+  \item Der Übergang \texttt{PROCESSING $\rightarrow$ TIMEOUT} fehlte in der Zustandsmaschine.
 \end{enumerate}
