@@ -3,13 +3,13 @@
 
 \subsection{Teststrategie}
 
-Die Implementierung des Dispatchers (Phase 2, Issues \#13--\#21) wurde
+Die Implementierung des Dispatchers wurde
 durch \textbf{automatisierte Integrationstests} validiert.
 Die Tests in \texttt{tests/integration\_test.py} testen das System
 als Black-Box über die gRPC-Schnittstelle -- kein Mocking,
 kein Unit-Test von Interna.
 
-Begründung: Da gRPC die einzige externe Schnittstelle ist, geben
+\noindent Begründung: Da gRPC die einzige externe Schnittstelle ist, geben
 Integrationstests über diese Schnittstelle die stärkste
 Sicherheit, dass das System korrekt funktioniert.
 Unit-Tests würden interne Implementierungsdetails testen,
@@ -43,7 +43,7 @@ Alle Integrationstests wurden erfolgreich bestanden:
 
 \subsection{Getestete Szenarien}
 
-\subsubsection{PostTask (Issue \#13)}
+\subsubsection*{PostTask}
 \begin{itemize}
   \item Task mit gültigem Typ wird akzeptiert, \texttt{task\_id} wird zurückgegeben.
   \item Task mit leerem \texttt{task\_type}: \texttt{INVALID\_ARGUMENT}.
@@ -53,7 +53,7 @@ Alle Integrationstests wurden erfolgreich bestanden:
   \item Zurückgegebene \texttt{task\_id} ist numerisch und eindeutig.
 \end{itemize}
 
-\subsubsection{ReturnResult (Issue \#16)}
+\subsubsection*{ReturnResult}
 \begin{itemize}
   \item COMPLETED: Zustand wechselt zu COMPLETED, Ergebnis wird gespeichert.
   \item FAILED: Zustand wechselt zu FAILED, Fehlermeldung gespeichert.
@@ -63,7 +63,7 @@ Alle Integrationstests wurden erfolgreich bestanden:
   \item Timeout-Timer wird nach ReturnResult abgebrochen.
 \end{itemize}
 
-\subsubsection{GetResult (Issue \#17)}
+\subsubsection*{GetResult}
 \begin{itemize}
   \item QUEUED-Task: Ergebnis leer, Status QUEUED.
   \item DISPATCHED-Task: Ergebnis leer, Status DISPATCHED.
@@ -73,7 +73,7 @@ Alle Integrationstests wurden erfolgreich bestanden:
   \item Polling-Verhalten: Status ändert sich korrekt im Zeitverlauf.
 \end{itemize}
 
-\subsubsection{Timeout + Retry (Issue \#18)}
+\subsubsection*{Timeout + Retry}
 \begin{itemize}
   \item Task erhält nach Timeout den Zustand TIMEOUT.
   \item Retry: Task wechselt zu RETRYING und wird neu eingereiht.
@@ -83,7 +83,7 @@ Alle Integrationstests wurden erfolgreich bestanden:
   \item Verspätetes Feuern auf terminalen Task: wird ignoriert.
 \end{itemize}
 
-\subsubsection{Nebenläufigkeit (Issue \#21)}
+\subsubsection*{Nebenläufigkeit}
 \begin{itemize}
   \item 10 Tasks gleichzeitig eingereiht: alle werden korrekt verarbeitet.
   \item Keine Race Conditions bei gleichzeitigem Zustandswechsel.
@@ -98,7 +98,7 @@ Unter Windows (PowerShell, cp1252-Encoding) führte dies zu
 \texttt{UnicodeEncodeError}.
 Lösung: \texttt{\$env:PYTHONIOENCODING = "utf-8"} vor dem Testaufruf setzen.
 
-\textbf{Doppelte Log-Ausgaben}:
+\noindent \textbf{Doppelte Log-Ausgaben}:
 Vor der Einführung von \texttt{logger.propagate = False} wurde jeder
 Log-Eintrag mehrfach ausgegeben (Python-Logger-Hierarchie).
 Dieser Fehler wurde in \texttt{src/common/logger.py} behoben.
@@ -106,7 +106,7 @@ Die 49/49 Tests bestehen weiterhin nach dem Fix.
 
 \subsection{Phase 3 -- Docker-Tests}
 
-Die Docker-Konfiguration (Issues \#34--\#38) wurde durch manuelle
+Die Docker-Konfiguration wurde durch manuelle
 Überprüfung aller Dockerfile- und docker-compose.yml-Konfigurationen
 validiert.
 Folgende Aspekte wurden geprüft:
@@ -122,7 +122,6 @@ Folgende Aspekte wurden geprüft:
   \item Worker-Ports nur intern (kein externes Mapping).
 \end{itemize}
 
-Ein vollständiger End-to-End-Test des containerisierten Systems
-(Issue \#39 -- Skalierungstest) steht aus, da die Namensdienst-
+Ein vollständiger End-to-End-Test des containerisierten Systems steht aus, da die Namensdienst-
 und Worker-Implementierungen von anderen Teammitgliedern noch
 nicht abgeschlossen sind.

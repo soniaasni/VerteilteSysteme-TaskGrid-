@@ -33,7 +33,7 @@ Die Felder \texttt{message\_type}, \texttt{request\_id},
 \texttt{timestamp} und \texttt{sender} sind in allen Nachrichten identisch.
 Lediglich der Inhalt des Payloads unterscheidet sich je nach Nachrichtentyp.
 
-\subsubsection{Task-Nachrichten (Dispatcher $\leftrightarrow$ Worker)}
+\subsubsection*{Task-Nachrichten (Dispatcher $\leftrightarrow$ Worker)}
 
 \begin{table}[H]
 	\centering
@@ -58,7 +58,7 @@ Lediglich der Inhalt des Payloads unterscheidet sich je nach Nachrichtentyp.
 	\caption{Task-Nachrichten zwischen Dispatcher und Worker}
 \end{table}
 
-\subsubsection{Ergebnis-Rückmeldung (Worker $\rightarrow$ Dispatcher)}
+\subsubsection*{Ergebnis-Rückmeldung (Worker $\rightarrow$ Dispatcher)}
 
 \begin{table}[H]
 	\centering
@@ -81,7 +81,7 @@ Lediglich der Inhalt des Payloads unterscheidet sich je nach Nachrichtentyp.
 	\caption{Ergebnis-Nachrichten vom Worker an den Dispatcher}
 \end{table}
 
-\subsubsection{Client-Schnittstelle (Client $\rightarrow$ Dispatcher)}
+\subsubsection*{Client-Schnittstelle (Client $\rightarrow$ Dispatcher)}
 
 \begin{table}[H]
 	\centering
@@ -113,7 +113,7 @@ Lediglich der Inhalt des Payloads unterscheidet sich je nach Nachrichtentyp.
 	\caption{Nachrichten zwischen Client und Dispatcher}
 \end{table}
 
-\subsubsection{Namensdienst-Nachrichten}
+\subsubsection*{Namensdienst-Nachrichten}
 \begin{table}[H]
 	\centering
 	\begin{tabular}{m{4.75cm} m{4.5cm} m{6.5cm}}
@@ -156,7 +156,7 @@ Lediglich der Inhalt des Payloads unterscheidet sich je nach Nachrichtentyp.
 
 Das System definiert drei gRPC-Services in \texttt{proto/taskgrid.proto}:
 
-\subsubsection{NamingService}
+\subsubsection*{NamingService}
 
 Der Namensdienst implementiert \texttt{NamingService}.
 Worker rufen die vier Methoden direkt auf:
@@ -169,7 +169,7 @@ service NamingService {
 }
 \end{lstlisting}
 
-\subsubsection{DispatcherService}
+\subsubsection*{DispatcherService}
 
 Der Dispatcher implementiert \texttt{DispatcherService}.
 Clients und Worker kommunizieren hierüber:
@@ -183,7 +183,7 @@ service DispatcherService {
 }
 \end{lstlisting}
 
-\subsubsection{WorkerService}
+\subsubsection*{WorkerService}
 
 Jeder Worker implementiert \texttt{WorkerService}.
 Der Dispatcher ruft \texttt{ExecuteTask} auf:
@@ -210,3 +210,9 @@ Der vollständige Fluss für eine erfolgreiche Task-Verarbeitung:
         Client pollt Ergebnis per \texttt{task\_id}.
         Dispatcher gibt aktuellen Zustand und Ergebnis zurück.
 \end{enumerate}
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[scale=0.65]{AblaufdiagrammNormal.drawio.png}
+	\caption{Erfolgsfall-Ablaufdiagramm}
+\end{figure}
