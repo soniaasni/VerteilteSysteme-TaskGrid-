@@ -39,32 +39,37 @@ logger = get_logger("dispatcher.dispatch_loop")
 _DEFAULT_TIMEOUT_SECS  = int(os.environ.get("DISPATCH_TIMEOUT_SECONDS", "30"))
 _DEFAULT_MAX_RETRIES   = int(os.environ.get("MAX_RETRIES", "3"))
 _NO_WORKER_RETRY_SECS  = float(os.environ.get("DISPATCH_NO_WORKER_RETRY_SECONDS", "2"))
+# Mindestverzögerung vor Re-Enqueue nach Timeout, damit der RETRYING-Zustand
+# für externe Beobachter (Polling, Tests) sichtbar bleibt (Issue #18)
+_RETRY_REENQUEUE_DELAY_SECS = float(os.environ.get("DISPATCH_RETRY_REENQUEUE_DELAY_SECONDS", "1.0"))
 
 
 class DispatchLoop(threading.Thread):
 
     def __init__(
         self,
-        store:         TaskStore,
-        queue:         TaskQueue,
-        ns_client:     NamensdienstClient,
-        selector:      RoundRobinSelector,
-        worker_client: WorkerClient,
-        timeout_secs:  int = _DEFAULT_TIMEOUT_SECS,
-        max_retries:   int = _DEFAULT_MAX_RETRIES,
+        store:                    TaskStore,
+        queue:                    TaskQueue,
+        ns_client:                NamensdienstClient,
+        selector:                 RoundRobinSelector,
+        worker_client:            WorkerClient,
+        timeout_secs:             int   = _DEFAULT_TIMEOUT_SECS,
+        max_retries:              int   = _DEFAULT_MAX_RETRIES,
+        retry_reenqueue_delay:    float = _RETRY_REENQUEUE_DELAY_SECS,
     ) -> None:
         super().__init__(daemon=True, name="dispatch-loop")
-        self._store         = store
-        self._queue         = queue
-        self._ns_client     = ns_client
-        self._selector      = selector
-        self._worker_client = worker_client
-        self._timeout_secs  = timeout_secs
-        self._max_retries   = max_retries
-        self._running       = False
-        self._executor      = ThreadPoolExecutor(max_workers=10, thread_name_prefix="dispatch")
-        self._timers:       dict[str, threading.Timer] = {}
-        self._timers_lock   = threading.Lock()
+        self._store                  = store
+        self._queue                  = queue
+        self._ns_client              = ns_client
+        self._selector               = selector
+        self._worker_client          = worker_client
+        self._timeout_secs           = timeout_secs
+        self._max_retries            = max_retries
+        self._retry_reenqueue_delay  = retry_reenqueue_delay
+        self._running                = False
+        self._executor               = ThreadPoolExecutor(max_workers=10, thread_name_prefix="dispatch")
+        self._timers:                dict[str, threading.Timer] = {}
+        self._timers_lock            = threading.Lock()
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -130,9 +135,10 @@ class DispatchLoop(threading.Thread):
         self._start_timeout_timer(task)
 
         # Task an Worker senden
+        # Rückgabewert: True = akzeptiert, False = abgelehnt, None = gRPC-Fehler
         success = self._worker_client.dispatch_task(worker.address, worker.port, task)
 
-        if success:
+        if success is True:
             # Worker hat Task akzeptiert → DISPATCHED → PROCESSING
             # Timeout-Timer läuft weiter bis ReturnResult eintrifft (Issue #18)
             try:
@@ -145,9 +151,11 @@ class DispatchLoop(threading.Thread):
             except InvalidTransitionError as e:
                 log_event(logger, "error", "DISPATCH_transition_error",
                           task_id=task.task_id, error=str(e))
-        else:
-            # Worker nicht erreichbar oder hat abgelehnt → DISPATCHED → FAILED
-            self._cancel_timeout(task.task_id)  # kein Retry bei expliziter Ablehnung
+
+        elif success is False:
+            # Worker hat Task explizit abgelehnt (accepted=False) → sofort FAILED
+            # Timer abbrechen, kein weiterer Retry
+            self._cancel_timeout(task.task_id)
             try:
                 transition(task, TaskState.FAILED)
                 self._store.update(task)
@@ -158,6 +166,14 @@ class DispatchLoop(threading.Thread):
             except InvalidTransitionError as e:
                 log_event(logger, "error", "DISPATCH_transition_error",
                           task_id=task.task_id, error=str(e))
+
+        else:
+            # gRPC-Fehler (Timeout/Netzwerk): success is None
+            # Timer läuft weiter → DISPATCH_TIMEOUT_fired → RETRYING → ggf. FAILED
+            # Kein sofortiges FAILED hier — Timer-Retry-Mechanismus übernimmt (Issue #18)
+            log_event(logger, "warning", "DISPATCH_grpc_error_timer_handles",
+                      task_id=task.task_id,
+                      worker_id=worker.worker_id)
 
     # ── Timeout-Timer ─────────────────────────────────────────────────────────
 
@@ -196,11 +212,21 @@ class DispatchLoop(threading.Thread):
                     log_event(logger, "error", "TIMEOUT_transition_error",
                               task_id=task_id, error=str(e))
             else:
-                # Erneut einplanen — Dispatch-Loop übernimmt RETRYING → DISPATCHED
-                self._queue.enqueue(fresh)
+                # Erneut einplanen nach kurzer Verzögerung.
+                # Die Verzögerung stellt sicher, dass der RETRYING-Zustand
+                # für externe Beobachter (Monitoring, Polling, Tests) sichtbar bleibt.
+                # Ohne Verzögerung würde die Dispatch-Loop den Task innerhalb von
+                # Millisekunden abholen und sofort auf DISPATCHED setzen.
                 log_event(logger, "info", "TIMEOUT_retrying",
                           task_id=task_id, retry_count=fresh.retry_count,
                           max_retries=self._max_retries)
+
+                def _reenqueue_after_delay(t=fresh) -> None:
+                    self._queue.enqueue(t)
+
+                delay_timer = threading.Timer(self._retry_reenqueue_delay, _reenqueue_after_delay)
+                delay_timer.daemon = True
+                delay_timer.start()
 
         timer = threading.Timer(self._timeout_secs, _on_timeout)
         timer.daemon = True

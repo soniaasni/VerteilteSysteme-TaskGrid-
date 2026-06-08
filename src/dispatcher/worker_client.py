@@ -47,11 +47,12 @@ class WorkerClient:
             if not response.payload.accepted:
                 log_event(logger, "warning", "DISPATCH_TASK_nack",
                           task_id=task.task_id, target=target, reason=response.payload.error)
-            return response.payload.accepted
+                return False   # Explizite Ablehnung durch Worker
+            return True        # Worker hat Task akzeptiert
 
         except grpc.RpcError as e:
             log_event(logger, "error", "DISPATCH_TASK_rpc_error",
                       task_id=task.task_id, target=target, error=str(e.code()))
-            return False
+            return None        # gRPC-Fehler (Timeout/Netzwerk) — kein sofortiges FAILED
         finally:
             channel.close()

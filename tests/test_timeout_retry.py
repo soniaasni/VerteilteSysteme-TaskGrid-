@@ -44,7 +44,8 @@ def _make_loop(workers_for_type=None, dispatch_ok=True,
     worker_client.dispatch_task.return_value = dispatch_ok
 
     loop = DispatchLoop(store, q, ns_client, selector, worker_client,
-                        timeout_secs=timeout_secs, max_retries=max_retries)
+                        timeout_secs=timeout_secs, max_retries=max_retries,
+                        retry_reenqueue_delay=0.0)  # kein Delay in Unit-Tests
     return loop, store, q
 
 
