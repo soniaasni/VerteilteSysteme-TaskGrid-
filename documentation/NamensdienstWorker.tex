@@ -1,13 +1,13 @@
 \section{Namensdienst und Worker-Management}
 \label{sec:namensdienst}
 
-\subsection{Service Discovery -- Konzept}
+\subsection{Service Discovery - Konzept}
 
 In TaskGrid+ werden Worker-Adressen \textbf{nirgends statisch} konfiguriert.
 Der Dispatcher und der Client kennen zur Build-Zeit nur den Namensdienst.
 Welche Worker für welchen Task-Typ verfügbar sind, erfährt der Dispatcher
 ausschließlich durch Abfragen an den Namensdienst (\texttt{LookupWorker}).
-
+\\
 Dieses Prinzip ist in der Aufgabenstellung (§4.2) explizit gefordert
 und wurde in allen Dockerfiles und der docker-compose.yml durchgesetzt:
 Worker-Adressen erscheinen in keiner Konfigurationsdatei des Dispatchers.
@@ -19,14 +19,20 @@ mit einem \texttt{RegisterWorker}-Aufruf:
 
 \begin{lstlisting}[language=Python,caption={Worker-Registrierung (worker.py)}]
 stub.RegisterWorker(
-    taskgrid_pb2.WorkerInfo(
-        worker_id=WORKER_ID,
-        task_types=TASK_TYPES,
-        address=WORKER_HOST,
-        port=WORKER_PORT,
-        status="ACTIVE",
-        current_load=0,
-    )
+	taskgrid_pb2.RegisterWorkerRequest(
+		message_type="REGISTER_WORKER",
+		request_id=str(uuid.uuid4()),
+		timestamp=int(time.time()),
+		sender=WORKER_ID,
+		payload=taskgrid_pb2.RegisterWorkerRequest.Payload(
+			worker_id=WORKER_ID,
+			task_types=TASK_TYPES,
+			address=WORKER_HOST,
+			port=WORKER_PORT,
+			status="ACTIVE",
+			current_load=get_current_load(),
+			)
+	)
 )
 \end{lstlisting}
 
@@ -52,15 +58,20 @@ def send_heartbeat_loop():
     while True:
         stub.SendHeartbeat(
             taskgrid_pb2.HeartbeatRequest(
-                worker_id=WORKER_ID,
-                timestamp=int(time.time()),
-                current_load=0,
-            )
+	            message_type="HEARTBEAT",
+	            sender = WORKER_ID,
+	            timestamp=int(time.time()),
+	            request_id = str(uuid.uuid4()),
+	            payload = taskgrid_pb2.HeartbeatRequest.Payload(
+		            worker_id=WORKER_ID,
+		            current_load=get_current_load()
+		            )
+          )
         )
         time.sleep(HEARTBEAT_INTERVAL)
 \end{lstlisting}
 
-Das Intervall ist über \texttt{HEARTBEAT\_INTERVAL\_SECONDS} (docker-compose)
+\noindent Das Intervall ist über \texttt{HEARTBEAT\_INTERVAL\_SECONDS} (docker-compose)
 konfigurierbar. Der Namensdienst erkennt ausgebliebene Heartbeats
 nach \texttt{HEARTBEAT\_TIMEOUT\_SECONDS=15} und entfernt den Worker
 aus seiner internen Liste.
@@ -74,18 +85,20 @@ Beim Beenden des Worker-Prozesses (Ctrl+C / SIGTERM) wird
 
 \begin{lstlisting}[language=Python,caption={Graceful Shutdown (worker.py)}]
 def deregister_worker():
-    stub.DeregisterWorker(
-        taskgrid_pb2.WorkerInfo(
-            worker_id=WORKER_ID,
-            address=WORKER_HOST,
-            port=WORKER_PORT,
-            status="OFFLINE",
-            ...
-        )
+    stub.stub.DeregisterWorker(
+	    taskgrid_pb2.DeregisterWorkerRequest(
+		    message_type = "DEREGISTER WORKER",
+		    request_id = str(uuid.uuid4()),
+		    timestamp=int(time.time()),
+		    sender = WORKER_ID,
+		    payload = taskgrid_pb2.DeregisterWorkerRequest.Payload(
+		    	worker_id=WORKER_ID,
+		    )
+	    )
     )
 \end{lstlisting}
 
-Dies ermöglicht \textbf{Graceful Shutdown}: Der Worker meldet sich
+\noindent Dies ermöglicht \textbf{Graceful Shutdown}: Der Worker meldet sich
 aktiv ab, anstatt auf das Heartbeat-Timeout zu warten.
 
 \subsection{Dispatcher-seitiger Namensdienst-Client}

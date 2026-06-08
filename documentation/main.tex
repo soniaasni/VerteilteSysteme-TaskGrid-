@@ -12,6 +12,17 @@
 \usepackage{float}
 \usepackage{hyperref}
 \usepackage{listings}
+\usepackage{xcolor}
+
+\lstdefinelanguage{yaml}{
+	keywords={true,false,null,y,n},
+	keywordstyle=\color{blue}\bfseries,
+	basicstyle=\ttfamily\small,
+	sensitive=false,
+	comment=[l]{\#},
+	morestring=[b]',
+	morestring=[b]"
+}
 \usepackage{color}
 \usepackage[
     backend=biber,
