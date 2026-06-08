@@ -1,0 +1,276 @@
+\documentclass[a4paper,12pt]{article}
+
+% -----------------------------------------
+% Pakete und Einstellungen (Projektstil)
+% -----------------------------------------
+\usepackage[a4paper, left=2.5cm, right=2.5cm, top=2.5cm, bottom=2.5cm]{geometry}
+\usepackage[ngerman]{babel}
+\usepackage{fontspec}
+\setmainfont{Arial}
+\usepackage{csquotes}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{color}
+\usepackage{setspace}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage[table]{xcolor}
+\usepackage{array}
+\usepackage{adjustbox}
+\usepackage{pifont}   % fuer \ding{51} (Haken)
+
+% -----------------------------------------
+% Farben und Listing-Stil
+% -----------------------------------------
+\definecolor{lightgray}{rgb}{0.95,0.95,0.95}
+\definecolor{darkgray}{rgb}{0.3,0.3,0.3}
+\definecolor{codegreen}{rgb}{0.0,0.5,0.0}
+\definecolor{codepurple}{rgb}{0.5,0.0,0.5}
+\definecolor{tableheadcolor}{rgb}{0.2,0.4,0.6}
+
+\lstset{
+    backgroundcolor=\color{lightgray},
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    breakatwhitespace=false,
+    frame=single,
+    rulecolor=\color{darkgray},
+    keywordstyle=\color{codepurple}\bfseries,
+    stringstyle=\color{codegreen},
+    commentstyle=\color{darkgray}\itshape,
+    showstringspaces=false,
+    tabsize=4,
+    captionpos=b
+}
+
+% Python-Stil
+\lstdefinestyle{python}{
+    language=Python,
+    morekeywords={None,True,False,str,int,ValueError},
+}
+
+% Log-Stil (kein Syntax-Highlighting, aber einheitlich)
+\lstdefinestyle{log}{
+    basicstyle=\ttfamily\footnotesize,
+    backgroundcolor=\color{lightgray},
+    frame=single,
+    breaklines=true,
+    breakatwhitespace=false,
+}
+
+% Tabellenkopf-Makro
+\newcommand{\tableheader}[1]{%
+    \rowcolor{tableheadcolor}\color{white}\textbf{#1}%
+}
+
+\setstretch{1.5}
+
+% -----------------------------------------
+% Dokument
+% -----------------------------------------
+\begin{document}
+
+% =========================================
+% Titelbereich
+% =========================================
+\begin{center}
+    {\Large \textbf{Testprotokoll -- TaskGrid Distributed System}}\\[0.5em]
+    {\large Verteilte Systeme}\\[1em]
+    \begin{tabular}{ll}
+        \textbf{Datum:}               & 08. Juni 2026 \\
+        \textbf{System:}              & TaskGrid (Verteilte Systeme) \\
+        \textbf{Testumgebung:}        & Docker Compose (\texttt{docker compose up -d --build}) \\
+        \textbf{Protokoll-Referenz:}  & Strukturierte Logs (Kap.~13) -- Dispatcher-Log und Worker-Client-Log \\
+    \end{tabular}
+\end{center}
+
+\vspace{1em}
+\hrule
+\vspace{1.5em}
+
+% =========================================
+\section*{Fehlertests}
+% =========================================
+
+% =========================================
+\newpage
+\section*{F-01 -- Worker-Container wird während der Bearbeitung gekillt}
+% =========================================
+
+\begin{table}[H]
+    \centering
+    \begin{adjustbox}{max width=\textwidth}
+    \begin{tabular}{>{\bfseries}p{4.5cm} p{10cm}}
+        \toprule
+        Feld & Inhalt \\
+        \midrule
+        Test-Nr              & F-01 \\
+        Fehlerfall           & Worker-Ausfall während der Bearbeitung (\texttt{docker kill worker-wait}) \\
+        Ausgangssituation    & System läuft mit Dispatcher, Namensdienst und \texttt{worker-wait}.
+                               Dispatcher-Timeout = 3\,s, Max-Retries = 2.
+                               Ein \texttt{wait}-Task mit 30 Sekunden Laufzeit wird gestartet. \\
+        Durchgeführte Aktion & Task wird an den Worker dispatcht.
+                               Während der Bearbeitung wird der Worker-Container mittels
+                               \texttt{docker kill} abrupt beendet. \\
+        Erwartetes Verhalten & Der Task darf nicht erfolgreich abgeschlossen werden.
+                               Dispatcher erkennt den Ausfall über Timeout oder gRPC-Fehler und setzt den
+                               Task auf \texttt{FAILED}. Der Namensdienst entfernt den Worker nach
+                               ausbleibenden Heartbeats. \\
+        Tatsächliches Verhalten & Der Task endet im Status \texttt{FAILED}.
+                               Der Dispatcher bleibt weiterhin funktionsfähig.
+                               Andere Tasks können erfolgreich verarbeitet werden.
+                               Der Namensdienst markiert den Worker als offline. \\
+        Bewertung            & \textbf{PASS} -- Der Worker-Ausfall wird korrekt erkannt.
+                               Der Task wird nicht fälschlich abgeschlossen und das System bleibt stabil. \\
+        \bottomrule
+    \end{tabular}
+    \end{adjustbox}
+    \caption{Fehlertest F-01: Worker-Ausfall während der Bearbeitung}
+\end{table}
+
+\subsection*{Relevante Logs}
+
+\begin{lstlisting}[style=log]
+DISPATCH_TIMEOUT_fired
+DISPATCH_worker_unreachable
+DISPATCH_stale_rpc_error_ignored
+\end{lstlisting}
+
+\subsection*{Screenshot}
+
+Terminal-Ausgabe von \texttt{docker kill worker-wait} sowie Dispatcher- und Namensdienst-Logs.
+
+% =========================================
+\newpage
+\section*{F-02 -- Unbekannter Tasktyp gesendet}
+% =========================================
+
+\begin{table}[H]
+    \centering
+    \begin{adjustbox}{max width=\textwidth}
+    \begin{tabular}{>{\bfseries}p{4.5cm} p{10cm}}
+        \toprule
+        Feld & Inhalt \\
+        \midrule
+        Test-Nr              & F-02 \\
+        Fehlerfall           & Unbekannter Tasktyp (\texttt{unknown\_type}) \\
+        Ausgangssituation    & System läuft mit \texttt{worker-sum}, \texttt{worker-reverse}
+                               und \texttt{worker-hash}.
+                               Für den Typ \texttt{unknown\_type} existiert kein registrierter Worker. \\
+        Durchgeführte Aktion & Client sendet einen \texttt{POST\_TASK}-Request mit
+                               \texttt{task\_type="unknown\_type"} und Payload \texttt{"test"}. \\
+        Erwartetes Verhalten & Dispatcher akzeptiert den Task zunächst und vergibt eine Task-ID.
+                               Beim Dispatch findet der Namensdienst keinen passenden Worker.
+                               Der Task darf niemals den Zustand \texttt{COMPLETED} erreichen. \\
+        Tatsächliches Verhalten & Der Namensdienst liefert keine Worker zurück.
+                               Der Dispatcher protokolliert den Fehler und belässt den Task in
+                               \texttt{QUEUED}, \texttt{RETRYING} oder \texttt{FAILED}.
+                               Das System bleibt stabil und verarbeitet weiterhin andere Tasks. \\
+        Bewertung            & \textbf{PASS} -- Das System behandelt unbekannte Tasktypen korrekt,
+                               ohne abzustürzen oder fehlerhafte Ergebnisse zu erzeugen. \\
+        \bottomrule
+    \end{tabular}
+    \end{adjustbox}
+    \caption{Fehlertest F-02: Unbekannter Tasktyp}
+\end{table}
+
+\subsection*{Relevante Logs}
+
+\begin{lstlisting}[style=log]
+POST_TASK_accepted
+LOOKUP_WORKER_no_workers
+DISPATCH_no_worker
+\end{lstlisting}
+
+\subsection*{Screenshot}
+
+Dispatcher-Log mit Meldung über fehlende Worker für den Tasktyp \texttt{unknown\_type}.
+
+% =========================================
+\newpage
+\section*{F-03 -- Worker antwortet nicht innerhalb des Timeouts}
+% =========================================
+
+\begin{table}[H]
+    \centering
+    \begin{adjustbox}{max width=\textwidth}
+    \begin{tabular}{>{\bfseries}p{4.5cm} p{10cm}}
+        \toprule
+        Feld & Inhalt \\
+        \midrule
+        Test-Nr              & F-03 \\
+        Fehlerfall           & Worker-Timeout während der Bearbeitung \\
+        Ausgangssituation    & Dispatcher-Timeout = 3\,s, Max-Retries = 2.
+                               Ein \texttt{wait}-Worker verarbeitet einen Task mit
+                               einer Laufzeit von 30 Sekunden und antwortet daher nicht rechtzeitig. \\
+        Durchgeführte Aktion & Ein Task mit \texttt{wait=30} wird an den Worker gesendet.
+                               Der Dispatcher überwacht die Bearbeitung mittels Timeout-Timer. \\
+        Erwartetes Verhalten & Nach Ablauf des Dispatcher-Timeouts wird der Task erneut eingeplant.
+                               Nach Erreichen der maximalen Anzahl von Wiederholungsversuchen
+                               (\texttt{MAX\_RETRIES}) wird der Task endgültig auf \texttt{FAILED} gesetzt. \\
+        Tatsächliches Verhalten & Der Task durchläuft die Zustände
+                               \texttt{DISPATCHED \textrightarrow{} TIMEOUT \textrightarrow{} RETRYING \textrightarrow{} FAILED}.
+                               Anschließend können neue Tasks weiterhin erfolgreich verarbeitet werden. \\
+        Bewertung            & \textbf{PASS} -- Der Timeout-Mechanismus funktioniert korrekt.
+                               Der Task wird nach den definierten Wiederholungsversuchen beendet und das
+                               System bleibt weiterhin stabil. \\
+        \bottomrule
+    \end{tabular}
+    \end{adjustbox}
+    \caption{Fehlertest F-03: Worker-Timeout}
+\end{table}
+
+\subsection*{Relevante Logs}
+
+\begin{lstlisting}[style=log]
+DISPATCH_TIMEOUT_fired
+TIMEOUT_retrying
+TIMEOUT_max_retries_exceeded
+\end{lstlisting}
+
+\subsection*{Screenshot}
+
+Dispatcher-Log mit Timeout-Ereignissen und Statuswechseln des Tasks.
+
+% =========================================
+\newpage
+\section*{Gesamtzusammenfassung}
+% =========================================
+
+\begin{table}[H]
+    \centering
+    \begin{adjustbox}{max width=\textwidth}
+    \begin{tabular}{lll}
+        \toprule
+        \textbf{Test} & \textbf{Fehlerfall} & \textbf{Ergebnis} \\
+        \midrule
+        F-01 & Worker-Absturz während der Bearbeitung & \ding{51}~PASS \\
+        F-02 & Unbekannter Tasktyp                    & \ding{51}~PASS \\
+        F-03 & Worker-Timeout                         & \ding{51}~PASS \\
+        \bottomrule
+    \end{tabular}
+    \end{adjustbox}
+    \caption{Ergebnisse der Fehlertests}
+\end{table}
+
+\subsection*{Beobachtungen}
+
+\textbf{Worker-Ausfall korrekt erkannt (F-01):} Der Dispatcher erkennt den Ausfall über Timeout
+oder gRPC-Fehler und setzt den Task auf \texttt{FAILED}. Der Namensdienst markiert den Worker
+als offline nach ausbleibenden Heartbeats. Das System bleibt in allen Fällen stabil.
+
+\textbf{Unbekannte Tasktypen sicher behandelt (F-02):} Der Namensdienst liefert beim Lookup
+keine Worker zurück (\texttt{LOOKUP\_WORKER\_no\_workers}). Der Dispatcher protokolliert den
+Fehler korrekt, ohne abzustürzen oder fehlerhafte Ergebnisse zu erzeugen.
+
+\textbf{Timeout-Mechanismus funktional (F-03):} Nach Ablauf des konfigurierten Timeouts wird
+der Task erneut eingeplant. Nach Erreichen von \texttt{MAX\_RETRIES} wird der Task endgültig
+auf \texttt{FAILED} gesetzt. Neue Tasks können anschließend weiterhin erfolgreich verarbeitet werden.
+
+Alle drei Fehlerfälle wurden erfolgreich getestet. In keinem der getesteten Szenarien kam es
+zu einem Systemabsturz oder zu inkonsistenten Taskzuständen.
+
+\end{document}
