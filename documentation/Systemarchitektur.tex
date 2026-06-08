@@ -53,7 +53,7 @@ hat folgende Vorteile:
 
 \subsection{Beschreibung der Komponenten}
 
-\subsubsection{Dispatcher}
+\subsubsection*{Dispatcher}
 
 Der Dispatcher ist die zentrale Steuereinheit des Systems.
 Er nimmt Tasks von Clients entgegen (\texttt{PostTask}),
@@ -92,7 +92,7 @@ umfasst folgende Module:
 \caption{Dispatcher-Module und ihre Aufgaben}
 \end{table}
 
-\subsubsection{Namensdienst}
+\subsubsection*{Namensdienst}
 
 Der Namensdienst implementiert Service Discovery für das gesamte System.
 Worker registrieren sich beim Start mit ihrer Adresse, dem unterstützten
@@ -102,7 +102,7 @@ Der Namensdienst erkennt inaktive Worker über ausgebliebene Heartbeats
 Der Dispatcher ruft \texttt{LookupWorker} auf, um aktive Worker
 für einen bestimmten Task-Typ zu erhalten.
 
-\subsubsection{Worker}
+\subsubsection*{Worker}
 
 Der Worker führt die eigentliche Verarbeitung der Tasks aus.
 Beim Start registriert er sich beim Namensdienst
@@ -144,7 +144,7 @@ folgende Module:
 	\caption{Worker-Module und ihre Aufgaben}
 \end{table}
 
-\subsubsection{Client}
+\subsubsection*{Client}
 
 Der Client stellt die Benutzerschnittstelle des Systems dar.
 Er ermöglicht das Erstellen neuer Tasks sowie das Abfragen bereits

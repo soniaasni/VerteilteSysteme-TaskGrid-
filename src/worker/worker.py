@@ -15,7 +15,6 @@ from src.worker.task_handlers import wait_handler
 
 import logging
 
-# ?
 class TaskProcessingError(Exception):
     pass
 
