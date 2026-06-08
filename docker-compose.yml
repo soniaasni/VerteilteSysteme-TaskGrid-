@@ -46,6 +46,7 @@ services:
       - NAMESERVICE_PORT=50052          # gelesen von src/namensdienst/server.py
       - HEARTBEAT_TIMEOUT_SECONDS=15
       - HEARTBEAT_CHECK_INTERVAL_SECONDS=5
+      - PYTHONUNBUFFERED=1              # print()-Ausgaben sofort in Docker-Logs
     networks:
       - taskgrid
     healthcheck:
