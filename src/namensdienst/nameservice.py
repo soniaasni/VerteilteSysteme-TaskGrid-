@@ -50,7 +50,7 @@ class Namensdienst:
             self.workers.append(worker)
             self.idcount += 1
 
-        print(f"Registered worker {payload.worker_id} at {payload.address}:{payload.port} for {', '.join(task_types)}")
+        logger.info(f"Registered worker {payload.worker_id} at {payload.address}:{payload.port} for {', '.join(task_types)}")
         return taskgrid_pb2.Ack(payload=taskgrid_pb2.Ack.Payload(success=True, message="Worker registered"))
 
     def LookupWorker(self, request, context):
@@ -60,7 +60,6 @@ class Namensdienst:
             if worker.type == task_type and worker.status not in ("UNHEALTHY", "OFFLINE")
         ]
 
-        print(f"Found {len(result)} workers of type {task_type}")
         #log_event(logger, "warning", "NAMESERVICE_lookup_empty", task_type=task_type)
         logger.info(f"Found {len(result)} workers of type {task_type}")
         for worker in result:
@@ -89,7 +88,7 @@ class Namensdienst:
         removed = [worker for worker in self.workers if worker.worker_id == payload.worker_id]
         self.workers = [worker for worker in self.workers if worker.worker_id != payload.worker_id]
 
-        print(f"De-Registered worker {payload.worker_id}: removed {len(removed)} entries")
+        logger.info(f"De-Registered worker {payload.worker_id}: removed {len(removed)} entries")
         return taskgrid_pb2.Ack(payload=taskgrid_pb2.Ack.Payload(success=bool(removed), message="Worker deregistered" if removed else "Worker not found"))
 
     def SendHeartbeat(self, request, context):
@@ -120,13 +119,11 @@ class Namensdienst:
                     elapsed = now - worker.lastHeartbeat
                     if elapsed >= x:
                         worker.status = "UNHEALTHY"
-                        print(f"Worker {worker.id} wurde UNHEALTHY gesetzt")
                         #log_event(logger, "warning", "NAMESERVICE_worker_unhealthy", worker_id=worker.id)
                         logger.info(f"Worker {worker.id} wurde UNHEALTHY gesetzt")
                     if elapsed >= x * y:
                         worker.status = "OFFLINE"
                         self.workers.remove(worker)
-                        print(f"Worker {worker.id} wurde OFFLINE gesetzt und entfernt")
                         #log_event(logger, "warning", "NAMESERVICE_worker_offline", worker_id=worker.id)
                         logger.info(f"Worker {worker.id} wurde OFFLINE gesetzt")
 
