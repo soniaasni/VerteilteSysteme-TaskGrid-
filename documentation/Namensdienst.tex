@@ -1,0 +1,389 @@
+\section{Namensdienst}
+\label{sec:namensdienst-doku}
+
+% ──────────────────────────────────────────────────────────────────────────────
+\subsection{Konzept und Aufgabe}
+
+Der Namensdienst (engl.\ \emph{Naming Service} oder \emph{Service Discovery})
+ist eine eigenständige Systemkomponente in TaskGrid+{}.
+Seine Kernaufgabe besteht darin, alle aktiven Worker zu verwalten und dem
+Dispatcher auf Anfrage mitzuteilen, welche Worker für einen bestimmten
+Task-Typ momentan verfügbar sind.
+
+\noindent Ohne den Namensdienst müsste der Dispatcher Worker-Adressen statisch
+kennen -- das würde dynamisches Hinzufügen, Entfernen oder Skalieren von
+Workern zur Laufzeit ausschließen.
+Durch die Entkopplung gilt stattdessen:
+
+\begin{itemize}
+  \item \textbf{Worker melden sich selbst an} (Push-Modell):
+        Jeder Worker registriert sich beim Start und bestätigt seine
+        Lebendigkeit durch regelmäßige Heartbeats.
+  \item \textbf{Dispatcher fragt bei Bedarf ab} (Pull-Modell):
+        Bevor ein Task dispatcht wird, fragt der Dispatcher den Namensdienst
+        per \texttt{LookupWorker} nach passenden Workern.
+  \item \textbf{Kein statisches Wissen im Dispatcher}:
+        Worker-Adressen tauchen in keiner Konfigurationsdatei des Dispatchers
+        auf; sie existieren ausschließlich in der In-Memory-Registry des
+        Namensdiensts.
+\end{itemize}
+
+\noindent Die Abgrenzung gegenüber Docker-DNS ist in Abschnitt~\ref{sec:nd-docker-dns}
+beschrieben.
+
+% ──────────────────────────────────────────────────────────────────────────────
+\subsection{Datenmodell -- Wie werden Worker gespeichert?}
+\label{sec:nd-datenmodell}
+
+Der Namensdienst hält alle Registrierungen \textbf{ausschließlich im
+Arbeitsspeicher} (Python-Liste).
+Eine Persistenzschicht (Datenbank, Datei, Volume) ist bewusst nicht
+vorgesehen (§4.1 der Aufgabenstellung):
+Stale-Einträge werden durch den Heartbeat-Timeout automatisch entfernt,
+und neue Worker registrieren sich beim eigenen Container-Start selbst neu.
+
+\noindent Jeder registrierte Worker wird durch eine \texttt{Worker}-Instanz
+(in \texttt{src/namensdienst/worker.py}) repräsentiert:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{m{3.5cm} m{2.4cm} m{7.5cm}}
+\toprule
+\textbf{Attribut} & \textbf{Typ} & \textbf{Bedeutung} \\
+\midrule
+\texttt{worker\_id}    & \texttt{str}   & Eindeutige ID des Workers
+                                          (Format: \texttt{worker-<typ>-<hostname>}) \\
+\texttt{type}          & \texttt{str}   & Primärer Task-Typ dieses Eintrags
+                                          (pro Typ ein eigener Eintrag) \\
+\texttt{task\_types}   & \texttt{list}  & Alle Task-Typen, die der Worker unterstützt \\
+\texttt{address}       & \texttt{str}   & Docker-Compose-Service-Name
+                                          (z.\,B. \texttt{worker-sum}) \\
+\texttt{port}          & \texttt{int}   & gRPC-Port des Workers im Container \\
+\texttt{status}        & \texttt{str}   & Zustand: \texttt{ACTIVE}, \texttt{UNHEALTHY}
+                                          oder \texttt{OFFLINE} \\
+\texttt{lastHeartbeat} & \texttt{float} & Unix-Timestamp des letzten Heartbeats \\
+\texttt{currentLoad}   & \texttt{int}   & Aktuelle Anzahl gleichzeitig bearbeiteter Tasks \\
+\texttt{id}            & \texttt{int}   & Interner Auto-Inkrement-Zähler des Namensdiensts \\
+\bottomrule
+\end{tabular}
+\caption{Felder der \texttt{Worker}-Klasse im Namensdienst}
+\end{table}
+
+\noindent Unterstützt ein Worker mehrere Task-Typen (z.\,B. \texttt{sum} und
+\texttt{reverse}), legt der Namensdienst \textbf{pro Typ einen eigenen Eintrag}
+an -- alle mit derselben \texttt{worker\_id}.
+Dadurch ist \texttt{LookupWorker} eine einfache Filteroperation
+auf \texttt{worker.type == task\_type}.
+
+Der Zähler \texttt{idcount} in der \texttt{Namensdienst}-Klasse
+stellt sicher, dass jeder interne Eintrag eine monoton steigende
+numerische ID erhält, auch wenn Workers sich mehrfach registrieren.
+
+% ──────────────────────────────────────────────────────────────────────────────
+\subsection{Registrierungsablauf}
+\label{sec:nd-registrierung-ablauf}
+
+Ein Worker sendet beim Start einen \texttt{RegisterWorker}-gRPC-Aufruf
+an den Namensdienst.
+Auf Server-Seite läuft dabei folgendes ab:
+
+\begin{enumerate}
+  \item \textbf{Validierung}: Ist \texttt{worker\_id} leer, wird der Aufruf
+        mit \texttt{INVALID\_ARGUMENT} abgelehnt.
+  \item \textbf{Idempotenz}: Alle bestehenden Einträge mit gleicher
+        \texttt{worker\_id}, \texttt{address} und \texttt{port} werden
+        vor dem Einfügen entfernt.
+        Damit ist eine erneute Registrierung (z.\,B. nach Neustart des Workers)
+        sicher möglich, ohne Duplikate zu erzeugen.
+  \item \textbf{Einträge anlegen}: Für jeden unterstützten Task-Typ wird
+        ein separater \texttt{Worker}-Eintrag in \texttt{self.workers}
+        eingefügt.
+        \texttt{lastHeartbeat} wird auf die aktuelle Zeit gesetzt,
+        \texttt{status} auf den übergebenen Wert (typisch \texttt{ACTIVE}).
+  \item \textbf{Antwort}: Der Namensdienst antwortet mit
+        \texttt{Ack(success=True)}.
+\end{enumerate}
+
+\begin{lstlisting}[language=Python,caption={Registrierungslogik -- Namensdienst-seitig (nameservice.py)}]
+def RegisterWorker(self, request, context):
+    payload = request.payload
+    # Schritt 1: Validierung
+    if not payload.worker_id:
+        context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+        return taskgrid_pb2.Ack(...)
+    # Schritt 2: Duplikate entfernen (Idempotenz)
+    self.workers = [
+        w for w in self.workers
+        if not (w.worker_id == payload.worker_id
+                and w.address == payload.address
+                and w.port    == payload.port)
+    ]
+    # Schritt 3: Einen Eintrag pro Task-Typ anlegen
+    for task_type in task_types:
+        worker = Worker(task_type, payload.address, payload.port,
+                        self.idcount, self,
+                        worker_id=payload.worker_id,
+                        task_types=task_types)
+        worker.lastHeartbeat = time.time()
+        worker.status = payload.status or "ACTIVE"
+        self.workers.append(worker)
+        self.idcount += 1
+\end{lstlisting}
+
+% ──────────────────────────────────────────────────────────────────────────────
+\subsection{Lookup-Ablauf}
+\label{sec:nd-lookup-ablauf}
+
+Der Dispatcher ruft \texttt{LookupWorker} auf, bevor er einen Task
+an einen Worker sendet.
+Der Aufruf enthält im Payload lediglich den gesuchten \texttt{task\_type}.
+
+\noindent Der Namensdienst filtert intern alle \texttt{Worker}-Einträge:
+
+\begin{lstlisting}[language=Python,caption={LookupWorker-Implementierung (nameservice.py)}]
+def LookupWorker(self, request, context):
+    task_type = request.payload.task_type
+    result = [
+        w for w in self.workers
+        if w.type == task_type
+        and w.status not in ("UNHEALTHY", "OFFLINE")
+    ]
+    return taskgrid_pb2.LookupResponse(
+        payload=taskgrid_pb2.LookupResponse.Payload(
+            found=bool(result),
+            workers=[
+                taskgrid_pb2.LookupResponse.WorkerPayload(
+                    worker_id=w.worker_id,
+                    task_types=w.task_types,
+                    address=w.address,
+                    port=int(w.port),
+                    status=w.status,
+                    current_load=w.currentLoad,
+                )
+                for w in result
+            ],
+            message="Workers found" if result else "No workers found",
+        )
+    )
+\end{lstlisting}
+
+\noindent Worker mit Status \texttt{UNHEALTHY} oder \texttt{OFFLINE} werden
+\textbf{nicht} zurückgegeben.
+Gibt es keine passenden Worker, enthält die Antwort
+\texttt{found=False} und eine leere Worker-Liste.
+Der Dispatcher behandelt eine leere Liste als
+"`kein Worker verfügbar"' und legt den Task nach
+\texttt{DISPATCH\_NO\_WORKER\_RETRY\_SECONDS} (Standard: 2\,s) erneut
+in die Queue.
+
+% ──────────────────────────────────────────────────────────────────────────────
+\subsection{Abgrenzung zu Docker-DNS}
+\label{sec:nd-docker-dns}
+
+Docker Compose bietet mit seinem eingebauten DNS-Dienst eine Möglichkeit,
+Container-Namen in IP-Adressen aufzulösen.
+Der eigene Namensdienst in TaskGrid+ erfüllt jedoch eine andere,
+erweiterte Funktion:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{m{4.5cm} m{4.5cm} m{4.5cm}}
+\toprule
+\textbf{Eigenschaft} & \textbf{Docker-DNS} & \textbf{TaskGrid+-Namensdienst} \\
+\midrule
+Auflösung           & Hostname → IP       & Worker-Typ → Adresse(n), Port, Status \\
+Gesundheitszustand  & Nicht bekannt       & Heartbeat-Status (\texttt{ACTIVE}/\texttt{UNHEALTHY}) \\
+Lastinformation     & Nicht verfügbar     & \texttt{current\_load} pro Worker \\
+Mehrere Instanzen   & Round-Robin-DNS     & Explizite Liste aller Instanzen \\
+Registrierung       & Automatisch         & Explizit durch Worker selbst \\
+Fehler bei Ausfall  & DNS-Fehler          & Leere Liste, kein Absturz \\
+\bottomrule
+\end{tabular}
+\caption{Vergleich: Docker-DNS vs. TaskGrid+-Namensdienst}
+\end{table}
+
+\noindent Docker-DNS kann zwar mehrere IP-Adressen für einen Service-Namen
+zurückgeben (Round-Robin), kennt aber weder den Gesundheitszustand
+einzelner Container noch deren aktuellen Auslastungsgrad.
+Der eigene Namensdienst ermöglicht es, ausgefallene oder überlastete
+Worker aus der Auswahl auszuschließen, bevor der Dispatcher überhaupt
+versucht, einen Task zu senden.
+
+% ──────────────────────────────────────────────────────────────────────────────
+\subsection{Worker-Registrierung und Heartbeats}
+\label{sec:nd-heartbeat}
+
+\subsubsection*{Registrierungsablauf beim Container-Start}
+
+Beim Start eines Worker-Containers durchläuft \texttt{serve()} in
+\texttt{src/worker/worker.py} folgende Schritte:
+
+\begin{enumerate}
+  \item Signal-Handler für \texttt{SIGTERM} und \texttt{SIGINT} registrieren
+        (Graceful Shutdown).
+  \item \texttt{register\_worker()} aufrufen -- bis zu 5 Versuche mit
+        exponentiellem Backoff (1\,s, 2\,s, 4\,s, 8\,s, 16\,s).
+  \item Heartbeat-Thread starten (\texttt{send\_heartbeat\_loop},
+        Daemon-Thread, läuft parallel zur Task-Verarbeitung).
+  \item gRPC-Server starten und auf eingehende \texttt{ExecuteTask}-Aufrufe
+        warten.
+\end{enumerate}
+
+\noindent Die Identität des Workers wird durch drei Umgebungsvariablen
+festgelegt, die im \texttt{entrypoint.sh} gesetzt werden:
+
+\begin{lstlisting}[language=bash,caption={Worker-Identität (entrypoint.sh)}]
+# WORKER_ID: eindeutig pro Container-Instanz
+if [ -z "${WORKER_ID}" ]; then
+    export WORKER_ID="worker-${TASK_TYPES}-$(hostname)"
+fi
+# NAMING_SERVICE_ADDRESS: NAMENSDIENST_ADDRESS hat Vorrang
+export NAMING_SERVICE_ADDRESS=\
+    "${NAMENSDIENST_ADDRESS:-${NAMING_SERVICE_ADDRESS:-namensdienst:50052}}"
+\end{lstlisting}
+
+\noindent \texttt{WORKER\_HOST} muss dem Docker-Compose-Service-Namen entsprechen
+(z.\,B. \texttt{worker-sum}), damit Docker-DNS den Namen zur Container-IP
+auflösen kann, wenn der Dispatcher den Worker über die vom Namensdienst
+zurückgegebene Adresse kontaktiert.
+
+\subsubsection*{Heartbeat-Intervall und konfigurierbare Parameter}
+
+Der Heartbeat-Loop sendet in fester Periode einen
+\texttt{SendHeartbeat}-gRPC-Aufruf an den Namensdienst.
+Dabei werden \texttt{worker\_id} und \texttt{current\_load}
+übertragen, sodass der Namensdienst die aktuelle Auslastung stets kennt.
+
+\begin{lstlisting}[language=Python,caption={Heartbeat-Loop (worker.py)}]
+def send_heartbeat_loop():
+    while True:
+        stub.SendHeartbeat(
+            taskgrid_pb2.HeartbeatRequest(
+                message_type="HEARTBEAT",
+                sender=WORKER_ID,
+                timestamp=int(time.time()),
+                request_id=str(uuid.uuid4()),
+                payload=taskgrid_pb2.HeartbeatRequest.Payload(
+                    worker_id=WORKER_ID,
+                    current_load=get_current_load()
+                )
+            )
+        )
+        time.sleep(HEARTBEAT_INTERVAL)
+\end{lstlisting}
+
+\noindent Alle zeitrelevanten Parameter sind über Umgebungsvariablen konfigurierbar:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{m{6.5cm} m{2cm} m{5cm}}
+\toprule
+\textbf{Umgebungsvariable} & \textbf{Default} & \textbf{Wirkung} \\
+\midrule
+\texttt{HEARTBEAT\_INTERVAL\_SECONDS}
+  & 5\,s
+  & Sendeintervall des Workers \\
+\texttt{NAMESERVICE\_UNHEALTHY\_SECS}
+  & 10\,s
+  & Namensdienst: Schwelle für \texttt{UNHEALTHY} \\
+\texttt{NAMESERVICE\_OFFLINE\_MULT}
+  & 2
+  & Multiplikator für \texttt{OFFLINE}-Schwelle
+    ($= \texttt{UNHEALTHY} \times \texttt{MULT}$) \\
+\bottomrule
+\end{tabular}
+\caption{Konfigurierbare Heartbeat-Parameter}
+\end{table}
+
+\noindent Mit den Standardwerten ergibt sich:
+UNHEALTHY nach 10\,s ohne Heartbeat,
+OFFLINE nach 20\,s ohne Heartbeat
+(entspricht \texttt{NAMESERVICE\_UNHEALTHY\_SECS} $\times$
+\texttt{NAMESERVICE\_OFFLINE\_MULT}).
+
+\subsubsection*{Inaktivitätserkennung -- wann wird ein Worker UNHEALTHY bzw.\ OFFLINE?}
+
+Im Namensdienst läuft ein Hintergrund-Thread (\texttt{startLoop}), der
+jede Sekunde alle registrierten Worker überprüft.
+Die Entscheidung basiert auf der vergangenen Zeit seit dem letzten
+Heartbeat:
+
+\begin{lstlisting}[language=Python,caption={Inaktivitätserkennung (nameservice.py)}]
+def loop():
+    while self.running:
+        now = time.time()
+        for worker in self.workers[:]:          # Kopie: sicheres Entfernen
+            elapsed = now - worker.lastHeartbeat
+            if elapsed >= x:                    # x = NAMESERVICE_UNHEALTHY_SECS
+                worker.status = "UNHEALTHY"
+            if elapsed >= x * y:                # y = NAMESERVICE_OFFLINE_MULT
+                worker.status = "OFFLINE"
+                self.workers.remove(worker)
+        time.sleep(1)
+\end{lstlisting}
+
+\noindent Die Zustandsübergänge lauten damit:
+
+\begin{enumerate}
+  \item \textbf{ACTIVE} $\rightarrow$ \textbf{UNHEALTHY}:
+        Der letzte Heartbeat liegt länger als
+        \texttt{NAMESERVICE\_UNHEALTHY\_SECS} (Standard: 10\,s) zurück.
+        Der Worker wird weiterhin in \texttt{self.workers} geführt,
+        aber von \texttt{LookupWorker} \textbf{nicht mehr zurückgegeben}.
+  \item \textbf{UNHEALTHY} $\rightarrow$ \textbf{OFFLINE}:
+        Der letzte Heartbeat liegt länger als
+        $\texttt{UNHEALTHY\_SECS} \times \texttt{OFFLINE\_MULT}$
+        (Standard: 20\,s) zurück.
+        Der Worker wird \textbf{aus der Liste entfernt} und gilt als
+        endgültig nicht mehr verfügbar.
+\end{enumerate}
+
+\noindent Ein als \texttt{OFFLINE} entfernter Worker kann sich anschließend
+erneut registrieren (z.\,B. nach Container-Neustart) -- der
+Namensdienst behandelt jede Registrierung idempotent
+(siehe Abschnitt~\ref{sec:nd-registrierung-ablauf}).
+
+\noindent Beim \textbf{Graceful Shutdown} sendet der Worker \emph{keine}
+explizite Abmeldung (\texttt{DeregisterWorker}), sondern stoppt lediglich
+den Heartbeat-Loop.
+Damit durchläuft der Namensdienst die Zustands\-übergänge
+ACTIVE $\rightarrow$ UNHEALTHY $\rightarrow$ OFFLINE selbstständig
+und testbar -- ohne dass ein manueller Eingriff nötig wäre.
+
+% ──────────────────────────────────────────────────────────────────────────────
+\subsection{Sequenzdiagramm: Worker-Start, Registrierung und Heartbeat-Loop}
+\label{sec:nd-sequenz}
+
+Das folgende Diagramm zeigt den vollständigen Ablauf vom Container-Start
+eines Workers bis zum laufenden Heartbeat-Betrieb.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{NamensdienstSequenz.drawio.png}
+\caption{Sequenzdiagramm: Worker-Start -- Register -- Heartbeat-Loop}
+\end{figure}
+
+\noindent Da das Diagramm noch nicht als Bilddatei vorliegt, wird der Ablauf
+hier tabellarisch beschrieben:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{m{0.5cm} m{2.5cm} m{2.5cm} m{8cm}}
+\toprule
+\textbf{\#} & \textbf{Von} & \textbf{An} & \textbf{Nachricht / Aktion} \\
+\midrule
+1  & Docker & Worker       & Container startet, \texttt{entrypoint.sh} setzt Umgebungsvariablen \\
+2  & Worker & Namensdienst & \texttt{RegisterWorker(worker\_id, task\_types, address, port, status=ACTIVE)} \\
+3  & Namensdienst & Worker & \texttt{Ack(success=True)} \\
+4  & Worker & Worker       & Heartbeat-Thread starten (\texttt{send\_heartbeat\_loop}) \\
+5  & Worker & Worker       & gRPC-Server starten (\texttt{WorkerService}) \\
+6  & Worker & Namensdienst & \texttt{SendHeartbeat(worker\_id, current\_load)}
+                             $\quad$ (alle \texttt{HEARTBEAT\_INTERVAL\_SECONDS}) \\
+7  & Namensdienst & Worker & \texttt{Ack(success=True, message="Heartbeat received")} \\
+8  & Namensdienst & --     & Hintergrundloop prüft \texttt{lastHeartbeat} jede Sekunde \\
+9  & -- & --               & Falls kein Heartbeat $\geq$ \texttt{UNHEALTHY\_SECS}: Status $\rightarrow$ UNHEALTHY \\
+10 & -- & --               & Falls kein Heartbeat $\geq$ \texttt{UNHEALTHY\_SECS} $\times$ \texttt{MULT}: Status $\rightarrow$ OFFLINE, Eintrag entfernt \\
+\bottomrule
+\end{tabular}
+\caption{Schrittweise Beschreibung des Sequenzdiagramms}
+\end{table}
