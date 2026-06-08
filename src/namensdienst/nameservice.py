@@ -8,8 +8,8 @@ from src.common.logger import get_logger, log_event
 
 logger = get_logger("nameservice.nameservice")
 
-NAMESERVICE_UNHEALTHY_SECS  = int(os.environ.get("NAMESERVICE_UNHEALTHY_SECS", "5"))
-NAMESERVICE_OFFLINE_MULT  = int(os.environ.get("NAMESERVICE_OFFLINE_MULT", "2"))
+NAMESERVICE_UNHEALTHY_SECS  = int(os.environ.get("NAMESERVICE_UNHEALTHY_SECS", 10))
+NAMESERVICE_OFFLINE_MULT  = int(os.environ.get("NAMESERVICE_OFFLINE_MULT", 2))
 
 class Namensdienst:
     def __init__(self):

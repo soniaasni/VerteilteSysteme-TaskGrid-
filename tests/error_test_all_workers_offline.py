@@ -68,12 +68,11 @@ NAMENSDIENST_ADDRESS = os.environ.get("NAMENSDIENST_ADDRESS", "localhost:50052")
 # ── Timing-Konstanten ─────────────────────────────────────────────────────────
 #
 # Hardcodiert im System (nicht änderbar ohne Code-Änderung):
-#   NAMESERVICE_UNHEALTHY_SECS = 5s  (nameservice.py::startLoop(5, 2))
-#   NAMESERVICE_OFFLINE_SECS   = 10s (5s * 2)
 #   HEARTBEAT_INTERVAL_SECONDS = 5s  (docker-compose.yml, worker-sum)
 #
-NAMESERVICE_UNHEALTHY_SECS = 5
-NAMESERVICE_OFFLINE_SECS   = 10   # 5s * 2 (Multiplikator hardcoded in nameservice.py)
+NAMESERVICE_UNHEALTHY_SECS = os.environ.get("NAMESERVICE_UNHEALTHY_SECS",  10)
+NAMESERVICE_OFFLINE_MULT = os.environ.get("NAMESERVICE_OFFLINE_MULT",  2)
+NAMESERVICE_OFFLINE_SECS   = NAMESERVICE_UNHEALTHY_SECS * NAMESERVICE_OFFLINE_MULT
 
 # Budget für das Warten bis OFFLINE + polling-Puffer
 OFFLINE_POLL_TIMEOUT_SECS  = NAMESERVICE_OFFLINE_SECS + 10
