@@ -1,0 +1,116 @@
+\section{Externe Bibliotheken}
+
+Für die Implementierung von TaskGrid+ wurden verschiedene Bibliotheken der
+Python-Standardbibliothek sowie externe Frameworks eingesetzt. Tabelle
+\ref{tab:bibliotheken} gibt einen Überblick über deren Zweck innerhalb des
+Systems.
+
+\begin{table}[H]
+	\centering
+	\begin{tabular}{p{3cm}p{13.75cm}}
+		\toprule
+		\textbf{Bibliothek} & \textbf{Verwendung} \\
+		\midrule
+		
+		\texttt{grpc} &
+		Implementierung der gRPC-Kommunikation zwischen Client, Dispatcher,
+		Namensdienst und Workern. Bereitstellung von RPC-Schnittstellen sowie
+		Erzeugung von Clients und Servern. \\
+		
+		\midrule
+		
+		\texttt{threading} &
+		Nebenläufigkeit innerhalb des Systems. Verwendung für Locks,
+		Heartbeat-Threads, Timeout-Überwachung und Hintergrundprozesse. \\
+		
+		\midrule
+		
+		\path{concurrent.futures} &
+		Bereitstellung des \texttt{ThreadPoolExecutor} zur parallelen Verarbeitung
+		mehrerer Tasks im Dispatcher. \\
+		
+		\midrule
+		
+		\texttt{queue} &
+		Thread-sichere FIFO-Warteschlange zur Verwaltung ausstehender Tasks im
+		Dispatcher. \\
+		
+		\midrule
+		
+		\texttt{http.server} &
+		Implementierung des HTTP-Monitoring-Endpunkts
+		(\texttt{GET /status}) des Dispatchers. \\
+		
+		\midrule
+		
+		\texttt{logging} &
+		Strukturiertes Logging von Ereignissen, Zustandsübergängen und Fehlern
+		zur Laufzeit. \\
+		
+		\midrule
+		
+		\texttt{json} &
+		Serialisierung von Monitoring-Daten und Log-Ausgaben im JSON-Format. \\
+		
+		\midrule
+		
+		\texttt{dataclasses} &
+		Definition kompakter Datenmodelle (z.\,B. Task-Objekte) mit automatisch
+		generierten Konstruktoren und Hilfsmethoden. \\
+		
+		\midrule
+		
+		\texttt{enum} &
+		Implementierung typisierter Aufzählungen, insbesondere für die
+		Task-Zustände der Zustandsmaschine. \\
+		
+		\midrule
+		
+		\texttt{typing} &
+		Bereitstellung von Typannotationen zur Verbesserung der Lesbarkeit,
+		Wartbarkeit und statischen Codeanalyse. \\
+		
+		\midrule
+		
+		\path{collections.defaultdict} &
+		Vereinfachte Verwaltung von Zählern und Zuordnungen, beispielsweise für
+		die Round-Robin-Worker-Auswahl. \\
+		
+		\midrule
+		
+		\texttt{hashlib} &
+		Berechnung kryptographischer Hashwerte (SHA-256) im Hash-Worker. \\
+		
+		\midrule
+		
+		\texttt{pathlib} &
+		Plattformunabhängige Verarbeitung von Datei- und Verzeichnispfaden. \\
+		
+		\midrule
+		
+		\texttt{pytest} &
+		Framework zur automatisierten Durchführung von Unit- und
+		Integrationstests. \\
+		
+		\midrule
+		
+		\texttt{unittest.mock} &
+		Erzeugung von Mock-Objekten zur Isolation einzelner Komponenten während
+		der Tests. \\
+		
+		\midrule
+		
+		\texttt{tempfile} &
+		Erzeugung temporärer Dateien und Verzeichnisse für Testzwecke. \\
+		
+		\midrule
+		
+		\texttt{io.StringIO} &
+		Simulation von Datei- und Stream-Objekten im Speicher für Tests und
+		Log-Validierungen. \\
+		
+		\bottomrule
+	\end{tabular}
+	\caption{Verwendete Bibliotheken und deren Funktion}
+	\label{tab:bibliotheken}
+\end{table}
