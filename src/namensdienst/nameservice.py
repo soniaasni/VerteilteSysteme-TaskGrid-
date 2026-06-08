@@ -12,56 +12,94 @@ class Namensdienst:
         self.running = False
         self.loopThread = None
 
-        self.startLoop(self,5,2)
+        self.startLoop(5, 2)
 
-    def RegisterWorker(self,type,address,port):
-        self.workers.append(Worker(type,address,port,self.idcount,self))
-        self.idcount += 1
-        print("Registered Worker of type " + type + " with address " + address + ":" + port)
-        return taskgrid_pb2.RegisterResponse(
-
-        )
-
-    def LookupWorker(self,request,context):
-        result = []
-        for worker in self.workers:
-            if worker.type==request.type and worker.status != "UNHEALTHY" and worker.status != "OFFLINE":
-                result.append(worker)
-        print("Found workers of type " + type + ": ")
-        for worker in result:
-            print("Worker " + str(worker.id) + ": "+ worker.address + ", " + worker.port)
-        return taskgrid_pb2.LookupResponse(
-
-        )
-        
-
-    def DeregisterWorker(self,request,context):
-        for worker in self.workers:
-            if worker.address == request.address and worker.port == request.port:
-                self.workers.remove(worker)
-                print("De-Registered Worker with address " + request.address + ":" + request.port)
-                return True
-        print("Could not find Worker with address " + request.address + " and port " + request.port)
-        return taskgrid_pb2.DeregisterResponse(
-
-        )
-    
-    def SendHeartbeat(self,request,context):
-
-        if not request.worker_id_load:
+    def RegisterWorker(self, request, context):
+        payload = request.payload
+        if not payload.worker_id:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
-            context.set_details("task_type darf nicht leer sein")
-            #log_event(logger, "warning", "POST_TASK_rejected", request_id=rid, reason="missing_task_type")
-            return taskgrid_pb2.Ack()
+            context.set_details("worker_id darf nicht leer sein")
+            return taskgrid_pb2.Ack(payload=taskgrid_pb2.Ack.Payload(success=False, message="worker_id missing"))
+
+        self.workers = [
+            worker for worker in self.workers
+            if not (worker.worker_id == payload.worker_id and worker.address == payload.address and worker.port == payload.port)
+        ]
+
+        task_types = list(payload.task_types) or ["unknown"]
+        for task_type in task_types:
+            worker = Worker(
+                task_type,
+                payload.address,
+                payload.port,
+                self.idcount,
+                self,
+                worker_id=payload.worker_id,
+                task_types=task_types,
+            )
+            worker.lastHeartbeat = time.time()
+            worker.currentLoad = payload.current_load
+            worker.status = payload.status or "ACTIVE"
+            self.workers.append(worker)
+            self.idcount += 1
+
+        print(f"Registered worker {payload.worker_id} at {payload.address}:{payload.port} for {', '.join(task_types)}")
+        return taskgrid_pb2.Ack(payload=taskgrid_pb2.Ack.Payload(success=True, message="Worker registered"))
+
+    def LookupWorker(self, request, context):
+        task_type = request.payload.task_type
+        result = [
+            worker for worker in self.workers
+            if worker.type == task_type and worker.status not in ("UNHEALTHY", "OFFLINE")
+        ]
+
+        print(f"Found {len(result)} workers of type {task_type}")
+        for worker in result:
+            print(f"Worker {worker.worker_id}: {worker.address}, {worker.port}")
+
+        return taskgrid_pb2.LookupResponse(
+            payload=taskgrid_pb2.LookupResponse.Payload(
+                found=bool(result),
+                workers=[
+                    taskgrid_pb2.LookupResponse.WorkerPayload(
+                        worker_id=worker.worker_id,
+                        task_types=worker.task_types,
+                        address=worker.address,
+                        port=int(worker.port),
+                        status=worker.status,
+                        current_load=worker.currentLoad,
+                    )
+                    for worker in result
+                ],
+                message="Workers found" if result else "No workers found",
+            )
+        )
+
+    def DeregisterWorker(self, request, context):
+        payload = request.payload
+        removed = [worker for worker in self.workers if worker.worker_id == payload.worker_id]
+        self.workers = [worker for worker in self.workers if worker.worker_id != payload.worker_id]
+
+        print(f"De-Registered worker {payload.worker_id}: removed {len(removed)} entries")
+        return taskgrid_pb2.Ack(payload=taskgrid_pb2.Ack.Payload(success=bool(removed), message="Worker deregistered" if removed else "Worker not found"))
+
+    def SendHeartbeat(self, request, context):
+        payload = request.payload
+        if not payload.worker_id:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("worker_id darf nicht leer sein")
+            return taskgrid_pb2.Ack(payload=taskgrid_pb2.Ack.Payload(success=False, message="worker_id missing"))
 
         for worker in self.workers:
-            if worker.id == request.worker_id:
+            if worker.worker_id == payload.worker_id:
                 worker.lastHeartbeat = time.time()
-                worker.currentLoad = request.load
-                worker.status = "ACTIVE"
-                return taskgrid_pb2.Ack()
+                worker.currentLoad = payload.current_load
+                worker.status = payload.status or "ACTIVE"
+                return taskgrid_pb2.Ack(payload=taskgrid_pb2.Ack.Payload(success=True, message="Heartbeat received"))
 
-     def startLoop(self, x, y):
+        return taskgrid_pb2.Ack(payload=taskgrid_pb2.Ack.Payload(success=False, message="Worker not found"))
+
+    def startLoop(self, x, y):
         self.running = True
 
         def loop():

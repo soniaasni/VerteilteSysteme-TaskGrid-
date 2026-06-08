@@ -34,7 +34,7 @@ def send_task(task_type: str, payload: str):
 
         if response.payload.success:
             print(f"Task wurde angenommen. Task-ID: {response.payload.task_id}")
-            return response.payload.task_id
+            return int(response.payload.task_id)
 
         print(f"Fehler: {response.payload.message}")
         return None

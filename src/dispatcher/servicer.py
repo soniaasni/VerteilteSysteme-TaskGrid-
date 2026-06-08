@@ -238,8 +238,12 @@ class DispatcherServicer(taskgrid_pb2_grpc.DispatcherServiceServicer):
         if self._dispatch_loop is not None:
             self._dispatch_loop.cancel_timeout(task_id)
 
-        new_state = TaskState.COMPLETED if status == "COMPLETED" else TaskState.FAILED
         try:
+            if task.status == TaskState.DISPATCHED:
+                transition(task, TaskState.PROCESSING)
+                self._store.update(task)
+
+            new_state = TaskState.COMPLETED if status == "COMPLETED" else TaskState.FAILED
             transition(task, new_state)
         except InvalidTransitionError as e:
             log_event(logger, "error", "RESULT_RETURN_invalid_transition",
