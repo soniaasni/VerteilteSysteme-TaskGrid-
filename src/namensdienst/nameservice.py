@@ -63,7 +63,7 @@ class Namensdienst:
         #log_event(logger, "warning", "NAMESERVICE_lookup_empty", task_type=task_type)
         logger.info(f"Found {len(result)} workers of type {task_type}")
         for worker in result:
-            print(f"Worker {worker.worker_id}: {worker.address}, {worker.port}")
+            logger.info(f"Worker {worker.worker_id}: {worker.address}, {worker.port}")
 
         return taskgrid_pb2.LookupResponse(
             payload=taskgrid_pb2.LookupResponse.Payload(
