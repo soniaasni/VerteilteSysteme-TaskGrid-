@@ -152,7 +152,7 @@ def transition(task: Task, new_state: TaskState) -> Task:
 
 \subsection{Thread-sichere Datenhaltung}
 
-\subsubsection{TaskStore (Issue \#21)}
+\subsubsection*{TaskStore}
 
 Der \texttt{TaskStore} hält alle Tasks in einem Dictionary im Arbeitsspeicher.
 Alle Methoden (Add, Get, Update, AllTasks) sind unter einem einzigen
@@ -168,7 +168,7 @@ Alle Methoden (Add, Get, Update, AllTasks) sind unter einem einzigen
   \item \texttt{worker\_load\_map()}: Gibt Anzahl aktiver Tasks pro Worker zurück.
 \end{itemize}
 
-\subsubsection{TaskQueue (Issue \#21)}
+\subsubsection*{TaskQueue}
 
 Die \texttt{TaskQueue} kapselt \texttt{queue.Queue} aus der Python-Standardbibliothek.
 Diese ist von Haus aus thread-sicher (FIFO, blockierendes \texttt{get()}).
@@ -190,7 +190,7 @@ class TaskQueue:
             return None
 \end{lstlisting}
 
-\subsection{Nebenläufigkeit im Dispatcher (Issue \#21)}
+\subsection{Nebenläufigkeit im Dispatcher}
 
 Der Dispatcher verarbeitet mehrere Tasks gleichzeitig durch folgendes Design:
 

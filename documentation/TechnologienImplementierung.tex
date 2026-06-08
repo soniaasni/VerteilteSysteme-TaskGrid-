@@ -26,7 +26,7 @@ wirft eine \texttt{RuntimeError} bei einer niedrigeren installierten Version.
 Daher ist in allen \texttt{requirements.txt}-Dateien \texttt{grpcio>=1.80}
 eingetragen (nicht nur \texttt{grpcio}).
 
-\subsection{Strukturiertes Logging (Issue \#19)}
+\subsection{Strukturiertes Logging}
 
 Alle Dispatcher-Log-Einträge folgen dem in §13 der Aufgabenstellung
 definierten Format.
@@ -43,7 +43,7 @@ stellt zwei Funktionen bereit:
 
 \textbf{Log-Format (Beispiele)}:
 
-\begin{lstlisting}[language={},caption={Strukturierte Log-Ausgaben (Issue \#19)}]
+\begin{lstlisting}[language={},caption={Strukturierte Log-Ausgaben}]
 [dispatcher] request_id=abc123 task_id=42 event=POST_TASK_accepted
              status=QUEUED type=sum queue_size=1
 [dispatcher] request_id=abc123 task_id=42 event=DISPATCH_sending
@@ -55,18 +55,17 @@ stellt zwei Funktionen bereit:
 [dispatcher] task_id=42 event=TIMEOUT_retrying
              retry_count=1 max_retries=3
 \end{lstlisting}
-
 Pflichtbestandteil des Testprotokolls: alle Ereignisse werden
 mit \texttt{task\_id} und \texttt{request\_id} geloggt.
 
-\textbf{Implementierungsdetail}: Python-Logger propagieren Nachrichten
+\noindent \textbf{Implementierungsdetail}: Python-Logger propagieren Nachrichten
 standardmäßig die Hierarchie aufwärts.
 Da jeder Logger eigene Handler hat (\texttt{dispatcher.dispatch\_loop}
 $\rightarrow$ \texttt{dispatcher} $\rightarrow$ root), würde dies zu
 doppelten Log-Einträgen führen.
 Dies wurde durch \texttt{logger.propagate = False} in \texttt{get\_logger()} behoben.
 
-\subsection{Dispatcher -- gRPC-Schnittstelle (Issue \#13)}
+\subsection{Dispatcher -- gRPC-Schnittstelle}
 
 \texttt{PostTask} ist die primäre Eingangsschnittstelle des Dispatchers.
 Die Validierungslogik prüft drei Bedingungen:
@@ -77,11 +76,11 @@ Die Validierungslogik prüft drei Bedingungen:
   \item \texttt{task\_payload} muss $\leq$ 1024 Zeichen lang sein.
 \end{enumerate}
 
-Bei Verstößen wird der gRPC-Statuscode \texttt{INVALID\_ARGUMENT} gesetzt.
+\noindent Bei Verstößen wird der gRPC-Statuscode \texttt{INVALID\_ARGUMENT} gesetzt.
 Valide Tasks erhalten eine neue \texttt{task\_id}, werden im
 \texttt{TaskStore} gespeichert und in die \texttt{TaskQueue} eingereiht.
 
-\subsection{Worker-Lookup (Issue \#14)}
+\subsection{Worker-Lookup}
 
 Der Dispatcher löst Worker-Adressen nie statisch auf.
 Stattdessen ruft \path{NamensdienstClient.lookup_worker()} bei jedem
@@ -90,7 +89,7 @@ Ein Round-Robin-Selector wählt einen Worker aus der zurückgegebenen Liste.
 Bei leerer Liste wartet der Dispatcher \texttt{DISPATCH\_NO\_WORKER\_RETRY\_SECONDS}
 und re-enqueued den Task.
 
-\subsection{Ergebnis-Empfang (Issue \#16)}
+\subsection{Ergebnis-Empfang}
 
 \texttt{ReturnResult} empfängt Ergebnisse von Workern.
 Drei Sonderfälle werden behandelt:
@@ -110,13 +109,13 @@ Die \texttt{duration\_ms} wird als Differenz zwischen
 \texttt{timestamp\_dispatched} und \texttt{timestamp\_completed} berechnet
 und im Log ausgegeben.
 
-\subsection{Ergebnis-Abfrage (Issue \#17)}
+\subsection{Ergebnis-Abfrage}
 
 \texttt{GetResult} gibt den aktuellen Zustand und -- falls vorhanden --
 das Ergebnis eines Tasks zurück.
 Für unbekannte \texttt{task\_id} wird gRPC-Code \texttt{NOT\_FOUND} gesetzt.
 
-\subsection{Monitoring-Schnittstelle (Issue \#20)}
+\subsection{Monitoring-Schnittstelle}
 
 Der Dispatcher stellt zwei parallele Monitoring-Schnittstellen bereit:
 
@@ -150,7 +149,7 @@ Der \texttt{StatusCollector} aggregiert folgende Felder:
 \caption{Monitoring-Felder (GET /status)}
 \end{table}
 
-\subsection{Timeout und Retry (Issue \#18)}
+\subsection{Timeout und Retry}
 
 Für jeden an einen Worker gesendeten Task startet der Dispatcher
 einen \texttt{threading.Timer}.
@@ -192,10 +191,10 @@ Der Timer wird abgebrochen wenn:
   \item Der Worker die Task explizit ablehnt (ACK ok=False).
 \end{itemize}
 
-\subsection{Containerisierung (Phase 3, Issues \#34--\#39)}
+\subsection{Containerisierung}
 \label{sec:containerisierung}
 
-\subsubsection{Verzeichnisstruktur der Container-Quellen}
+\subsubsection*{Verzeichnisstruktur der Container-Quellen}
 
 Alle Komponenten liegen unterhalb von \texttt{src/} im Projekt-Root.
 Jede Komponente bringt ihr eigenes \texttt{Dockerfile} mit:
@@ -225,7 +224,7 @@ VerteilteSysteme-TaskGrid-/
     common/                     <- gemeinsamer Logger
 \end{lstlisting}
 
-\subsubsection{Allgemeine Dockerfile-Prinzipien}
+\subsubsection*{Allgemeine Dockerfile-Prinzipien}
 
 Alle Dockerfiles folgen denselben Entwurfsprinzipien:
 
@@ -263,7 +262,7 @@ Alle Dockerfiles folgen denselben Entwurfsprinzipien:
         (Aufgabenanforderung §8: Volumes ausschließlich für Logs).
 \end{enumerate}
 
-\subsubsection{Dispatcher Dockerfile -- Issue \#35}
+\subsubsection*{Dispatcher Dockerfile}
 
 Build-Kontext: Projekt-Root. Benötigt \texttt{proto/} (gRPC-Stubs) und
 \texttt{src/} (Dispatcher- und Common-Module).
@@ -288,11 +287,11 @@ EXPOSE 8080
 CMD ["python", "src/dispatcher/server.py"]
 \end{lstlisting}
 
-\textbf{Keine Worker-Adressen}: Gemäß Aufgabenanforderung §4.2 enthält das
+\noindent \textbf{Keine Worker-Adressen}: Gemäß Aufgabenanforderung §4.2 enthält das
 Dockerfile keine Worker-Adressen oder -Ports. Der Dispatcher ermittelt
 Worker ausschließlich dynamisch über den Namensdienst (\texttt{LOOKUP\_WORKER}).
 \newpage
-\subsubsection{Client Dockerfile -- Issue \#34}
+\subsubsection*{Client Dockerfile}
 
 Build-Kontext: Projekt-Root. Benötigt \texttt{proto/} und \texttt{src/client/}.
 
@@ -310,10 +309,10 @@ EXPOSE 50051
 CMD ["python", "src/client/client.py"]
 \end{lstlisting}
 
-\subsubsection{Worker Dockerfile -- Issue \#36}
+\subsubsection*{Worker Dockerfile}
 
 Build-Kontext: Projekt-Root. Benötigt \texttt{proto/} (gRPC-Stubs, geteilt
-mit Dispatcher), \texttt{src/worker/task\_handlers/} und
+mit Dispatcher), \path{src/worker/task_handlers/} und
 \texttt{src/worker/worker.py}.
 
 \begin{lstlisting}[language={},caption={Worker Dockerfile (src/worker/Dockerfile)}]
@@ -336,7 +335,6 @@ ENV HEARTBEAT_INTERVAL_SECONDS=5
 EXPOSE 50051
 ENTRYPOINT ["./entrypoint.sh"]
 \end{lstlisting}
-
 \textbf{sed-Kommando}: Das Repository wird auf Windows entwickelt.
 Windows-Zeilenenden (CRLF) in Shell-Skripten machen den Shebang
 (\texttt{\#!/bin/sh}) im Linux-Container unlesbar, da \texttt{\textbackslash r}
@@ -344,7 +342,7 @@ als Teil des Interpreter-Pfads interpretiert wird.
 \texttt{sed -i 's/\textbackslash r//'} entfernt alle \texttt{\textbackslash r}-Zeichen
 bevor dem Skript Ausführungsrechte gegeben werden.
 
-\textbf{entrypoint.sh -- ENV-VAR-Mapping und WORKER\_ID-Generierung}:
+\noindent \textbf{entrypoint.sh -- ENV-VAR-Mapping und WORKER\_ID-Generierung}:
 Die Issue-Spezifikation (\#36) und \texttt{worker.py} nutzen unterschiedliche
 Variablennamen. Das Entrypoint-Skript übersetzt zur Laufzeit:
 
@@ -362,14 +360,13 @@ fi
 
 exec python src/worker/worker.py
 \end{lstlisting}
-
 Die \texttt{WORKER\_ID}-Generierung via \texttt{hostname} garantiert, dass
 bei \texttt{docker compose up --scale worker-sum=3} alle drei Instanzen
 unterschiedliche IDs beim Namensdienst registrieren.
 \texttt{exec} ersetzt den Shell-Prozess durch Python, sodass
 SIGTERM-Signale (Docker-Stop) direkt beim Worker ankommen.
 
-\subsubsection{Namensdienst Dockerfile -- Issue \#37}
+\subsubsection*{Namensdienst Dockerfile}
 
 Build-Kontext: Projekt-Root. Benötigt \texttt{proto/},
 \texttt{src/namensdienst/} und \texttt{src/common/} (Logger).
@@ -394,7 +391,7 @@ Der Einstiegspunkt ist \texttt{server.py}, der den gRPC-Server startet und
 die \texttt{Namensdienst}-Klasse aus \texttt{nameservice.py} als Servicer
 registriert.
 
-\subsubsection{docker-compose.yml -- Issue \#38}
+\subsubsection*{docker-compose.yml}
 
 Die Orchestrierungsdatei steuert alle acht Container-Services:
 
@@ -416,12 +413,12 @@ Die Orchestrierungsdatei steuert alle acht Container-Services:
 \end{tabular}
 \caption{docker-compose.yml -- Services im Überblick}
 \end{table}
-
+\newpage
 \textbf{Implementierte Anforderungen}:
 
 \begin{table}[H]
 \centering
-\begin{tabular}{p{4.5cm}p{7cm}l}
+\begin{tabular}{p{4.5cm}p{10cm}l}
 \toprule
 \textbf{Anforderung} & \textbf{Umsetzung} & \textbf{Ref.} \\
 \midrule
@@ -489,7 +486,7 @@ nicht nur ob der Python-Prozess gestartet wurde.
 eigenen Startup (Verbindung zum Namensdienst, Thread-Start) abzuschließen,
 bevor fehlgeschlagene Checks als Fehler zählen.
 
-\textbf{Skalierung (Issue \#39)}:
+\textbf{Skalierung}:
 
 Einzelne Worker-Typen können horizontal skaliert werden ohne
 Konfigurationsänderungen:
@@ -517,7 +514,7 @@ Die Skalierung funktioniert, weil:
         beim Namensdienst mit demselben \texttt{WORKER\_HOST}, der Dispatcher
         erhält sie über \texttt{LOOKUP\_WORKER} zurück.
 \end{itemize}
-
+\newpage
 \textbf{Kommunikationsports im Netzwerk \texttt{taskgrid}}:
 
 \begin{table}[H]

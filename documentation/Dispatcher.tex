@@ -74,8 +74,8 @@ initialisiert und gestartet:
 Das gemeinsame Nachrichtenformat ist in \texttt{proto/taskgrid.proto}
 (proto3) definiert. Da der Worker-Code eigene Proto-Stubs mitbringt,
 wurden alle Dispatcher-Proto-Definitionen auf die Worker-Konventionen abgestimmt.
-
 Die Konvertierung zwischen den Typen erfolgt ausschließlich an der gRPC-Grenze:
+\newpage
 \begin{lstlisting}[language=Python,caption={int32-Konvertierung an der gRPC-Grenze}]
 # Eingehend (int32 -> str):
 task_id = str(request.task_id)   # in ReturnResult, GetResult
@@ -124,7 +124,6 @@ return taskgrid_pb2.TaskResponse(
     status=TaskState.QUEUED.value,
 )
 \end{lstlisting}
-
 Alle drei Fehlerfälle sind durch Integrationstests abgedeckt und werden im
 Testprotokoll dokumentiert.
 
@@ -168,7 +167,6 @@ with self._lock:
     self._counters[task_type] += 1
 return workers[idx]
 \end{lstlisting}
-
 Bei 3 Workern ergibt sich die Sequenz: w1, w2, w3, w1, w2, w3, \ldots{}
 Der Zähler ist thread-sicher (Lock) und wurde durch 1000 parallele
 Selektionen auf Korrektheit und gleichmäßige Verteilung getestet.
@@ -242,8 +240,7 @@ Ungültiger Übergang & \texttt{Ack(success=False)}, Log-Error & Race Condition 
 \end{tabular}
 \caption{ReturnResult -- Behandlung von Sonderfällen}
 \end{table}
-
-Die Idempotenz ist besonders wichtig: Ein Worker könnte nach einem Retry
+\noindent Die Idempotenz ist besonders wichtig: Ein Worker könnte nach einem Retry
 ein verspätetes Ergebnis senden. Der Task wäre dann schon auf \texttt{FAILED}
 gesetzt. Das verspätete Ergebnis wird in diesem Fall still ignoriert.
 
@@ -274,8 +271,7 @@ Die Schnittstelle ist bewusst einfach gehalten und für Polling-Betrieb ausgeleg
   \item Task \texttt{COMPLETED}: Status und Ergebnis zurückgeben.
   \item Task \texttt{FAILED}: Status und Fehlermeldung im Ergebnisfeld.
 \end{itemize}
-
-Der Client kann \texttt{GetResult} beliebig oft aufrufen, bis der Status terminal ist.
+\noindent Der Client kann \texttt{GetResult} beliebig oft aufrufen, bis der Status terminal ist.
 Ein typischer Polling-Loop sieht so aus:
 
 \begin{lstlisting}[language=Python,caption={Client-seitiges Polling (Beispiel)}]
@@ -337,6 +333,12 @@ DISPATCHED  FAILED
 \caption{Zustandsübergänge bei Timeout}
 \end{figure}
 
+\begin{figure}[H]
+	\centering
+	\includegraphics[scale=0.58]{AblaufdiagrammFehler.drawio.png}
+	\caption{Fehlerfall-Diagramm}
+\end{figure}
+
 \subsubsection*{Konfigurierbare Parameter}
 
 Alle Timeout- und Retry-Parameter lassen sich über Umgebungsvariablen anpassen,
@@ -361,16 +363,13 @@ ohne den Code zu ändern:
 
 Alle Komponenten des Dispatchers nutzen das zentrale Modul
 \texttt{src/common/logger.py}.
-\newpage
 \subsubsection*{Log-Format}
 \begin{lstlisting}[language={},caption={Strukturiertes Log-Format}]
 [component] request_id=X task_id=Y event=Z key=value key=value
 \end{lstlisting}
-
 Pflichtfelder bei jedem Event sind \texttt{request\_id}, \texttt{task\_id} und \texttt{event}.
-Weitere Key-Value-Paare werden je nach Kontext ergänzt.
-
-\textbf{Beispiele aus dem laufenden System:}
+Weitere Key-Value-Paare werden je nach Kontext ergänzt.\\
+\noindent \textbf{Beispiele aus dem laufenden System:}
 
 \begin{lstlisting}[language={},caption={Log-Ausgaben Dispatcher (Normalfall)}]
 [dispatcher] request_id=abc task_id=1 event=POST_TASK_accepted
@@ -384,7 +383,6 @@ Weitere Key-Value-Paare werden je nach Kontext ergänzt.
 [dispatcher] request_id=abc task_id=1 event=GET_RESULT_queried
              status=COMPLETED sender=client-1
 \end{lstlisting}
-
 \textbf{Timeout-Fall:}
 
 \begin{lstlisting}[language={},caption={Log-Ausgaben Dispatcher (Timeout-Fall)}]
@@ -417,9 +415,8 @@ in \texttt{get\_logger()} gelöst.
 \subsubsection*{HTTP-Endpoint (primär)}
 
 Der Dispatcher startet beim Hochfahren einen \texttt{HttpStatusServer}-Thread
-auf Port \texttt{STATUS\_HTTP\_PORT} (Standard: 8080).
-Der Endpoint lässt sich direkt mit \texttt{curl http://localhost:8080/status} abfragen.
-
+auf Port \path{STATUS_HTTP_PORT} (Standard: 8080).
+Der Endpoint lässt sich direkt mit \path{curl http://localhost:8080/status} abfragen.
 Die Antwort enthält alle neun Pflichtfelder der Aufgabenstellung als JSON:
 
 \begin{lstlisting}[language={},caption={GET /status -- Beispielantwort}]
@@ -524,7 +521,6 @@ with self._lock:
             load[t.assigned_worker] = load.get(t.assigned_worker, 0) + 1
     return load
 \end{lstlisting}
-
 Diese Methode wird vom \texttt{StatusCollector} für das Monitoring genutzt und
 im Integrationstest auf Konsistenz unter Last geprüft.
 
@@ -569,7 +565,7 @@ für Task-Daten.
 
 Positiv: O(1)-Zugriff, keine externen Abhängigkeiten, vollständig konform mit §8
 und durch Unit-Tests vollständig mock-testbar.
-
+\\
 Negativ/Akzeptiert: Tasks gehen bei einem Dispatcher-Neustart verloren.
 Das ist für den Studienkontext bewusst in Kauf genommen. Durability ist
 keine Anforderung dieser Aufgabe.
