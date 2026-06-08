@@ -46,6 +46,8 @@ COPY src/common/       ./src/common/
 # (absoluter Import seit grpcio>=1.80), proto/-Verzeichnis muss direkt
 # im sys.path liegen damit dieser Import aufgelöst werden kann.
 ENV PYTHONPATH=/app:/app/proto
+# Stdout-Buffering deaktivieren, damit print()-Ausgaben sofort in Docker-Logs erscheinen
+ENV PYTHONUNBUFFERED=1
 
 # ── Log-Verzeichnis ───────────────────────────────────────────────────────────
 # Strukturierte Logs gemäß §13; per Volume in docker-compose.yml montierbar.
