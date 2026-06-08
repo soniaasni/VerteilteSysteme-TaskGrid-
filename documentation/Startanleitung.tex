@@ -1,1 +1,154 @@
 \section{Startanleitung}
+\label{sec:startanleitung}
+
+Dieser Abschnitt beschreibt, wie das TaskGrid+{}-System gestartet, betrieben
+und wieder gestoppt wird. Alle Schritte setzen voraus, dass Docker und
+Docker Compose auf dem System installiert sind.
+
+\subsection{Voraussetzungen}
+
+Folgende Software muss auf dem Rechner vorhanden sein:
+
+\begin{itemize}
+  \item \textbf{Docker} (Version 24 oder höher empfohlen)
+  \item \textbf{Docker Compose} (als Plugin: \texttt{docker compose}, oder als
+        eigenständiges Binary \texttt{docker-compose})
+  \item Das Repository muss lokal ausgecheckt sein
+\end{itemize}
+
+Ob Docker korrekt installiert ist, lässt sich mit folgendem Befehl prüfen:
+
+\begin{lstlisting}[language=bash,caption={Docker-Versionsprüfung}]
+docker --version
+docker compose version
+\end{lstlisting}
+
+\subsection{System starten}
+
+Aus dem Wurzelverzeichnis des Repositories genügt ein einziger Befehl,
+um alle Komponenten zu bauen und zu starten:
+
+\begin{lstlisting}[language=bash,caption={System starten}]
+docker compose up --build
+\end{lstlisting}
+
+Die Option \texttt{--build} stellt sicher, dass alle Docker-Images neu gebaut werden.
+Beim ersten Start dauert das je nach Internetverbindung einige Minuten, da die
+Python-Basisimages geladen werden. Folgeaufrufe ohne Codeänderungen sind deutlich schneller.
+
+Um das System im Hintergrund zu starten (detached mode), wird \texttt{-d} ergänzt:
+
+\begin{lstlisting}[language=bash,caption={System im Hintergrund starten}]
+docker compose up --build -d
+\end{lstlisting}
+
+\subsubsection*{Startreihenfolge}
+
+Docker Compose startet die Komponenten in der richtigen Reihenfolge,
+da jeder Service Health-Checks und \texttt{depends\_on}-Bedingungen definiert:
+
+\begin{enumerate}
+  \item \textbf{namensdienst} startet zuerst und öffnet seinen gRPC-Port (50052).
+  \item \textbf{dispatcher} startet, sobald der Namensdienst als \textit{healthy}
+        gemeldet wird, und öffnet Port 50051 (gRPC) sowie 8080 (HTTP-Monitoring).
+  \item \textbf{worker-*} starten, sobald Namensdienst und Dispatcher bereit sind.
+        Jeder Worker registriert sich beim Namensdienst und beginnt mit dem Senden
+        von Heartbeats.
+  \item \textbf{client} startet als letzter, führt eine Demo aus und beendet sich.
+\end{enumerate}
+
+\subsection{Worker skalieren}
+
+Einer der Hauptvorteile der Architektur ist die einfache horizontale Skalierbarkeit.
+Einzelne Worker-Typen lassen sich mit dem \texttt{--scale}-Flag hochskalieren,
+ohne dass am Dispatcher oder Namensdienst etwas geändert werden muss:
+
+\begin{lstlisting}[language=bash,caption={Mehrere Worker desselben Typs starten}]
+docker compose up --build -d --scale worker-sum=3
+\end{lstlisting}
+
+Auf diese Weise starten drei Instanzen des \texttt{worker-sum}-Containers gleichzeitig.
+Jede Instanz registriert sich mit einer eigenen eindeutigen ID beim Namensdienst.
+Der Dispatcher verteilt eingehende Tasks dann automatisch per Round-Robin auf
+alle drei Instanzen. Mehrere Typen lassen sich kombinieren:
+
+\begin{lstlisting}[language=bash,caption={Verschiedene Worker-Typen gleichzeitig skalieren}]
+docker compose up --build -d --scale worker-sum=3 --scale worker-reverse=2
+\end{lstlisting}
+
+\subsection{System überprüfen}
+
+Sobald das System läuft, können die einzelnen Komponenten auf verschiedene Arten
+überprüft werden.
+
+\subsubsection*{Container-Status}
+
+Den aktuellen Status aller laufenden Container zeigt:
+
+\begin{lstlisting}[language=bash,caption={Laufende Container anzeigen}]
+docker compose ps
+\end{lstlisting}
+
+\subsubsection*{Logs einsehen}
+
+Die Log-Ausgaben einzelner Komponenten lassen sich gezielt abrufen:
+
+\begin{lstlisting}[language=bash,caption={Logs einer Komponente anzeigen}]
+docker logs dispatcher
+docker logs namensdienst
+docker compose logs worker-sum
+\end{lstlisting}
+
+\subsubsection*{Monitoring-Endpoint}
+
+Der Dispatcher stellt unter Port 8080 einen HTTP-Monitoring-Endpoint bereit,
+der aktuelle Systemkennzahlen als JSON ausgibt:
+
+\begin{lstlisting}[language=bash,caption={Systemstatus abfragen}]
+curl http://localhost:8080/status
+\end{lstlisting}
+
+Die Ausgabe enthält unter anderem die Anzahl aktiver Worker, offene und laufende
+Tasks sowie Statistiken zu Timeouts und Retries. Ein Beispiel:
+
+\begin{lstlisting}[language={},caption={Beispiel-Ausgabe des Monitoring-Endpoints}]
+{
+  "aktive_worker": 3,
+  "unterstützte_tasktypen": ["sum", "reverse", "hash", "upper", "wait"],
+  "offene_tasks": 0,
+  "laufende_tasks": 1,
+  "abgeschlossene_tasks": 12,
+  "fehlgeschlagene_tasks": 0,
+  "durchschnittliche_bearbeitungszeit_ms": 42.5,
+  "anzahl_timeouts": 0,
+  "anzahl_retries": 0
+}
+\end{lstlisting}
+
+\subsubsection*{Einen Task manuell einreichen}
+
+Tasks können über den mitgelieferten Client-Container oder direkt per gRPC
+an den Dispatcher gesendet werden. Der Client bietet zwei Modi:
+
+\begin{lstlisting}[language=bash,caption={Task senden und Ergebnis abfragen}]
+# Task einreichen (gibt eine task_id zurueck)
+docker compose run --rm client python src/client/client.py send sum "1,2,3,4"
+
+# Ergebnis einer Task-ID abfragen
+docker compose run --rm client python src/client/client.py result 1
+\end{lstlisting}
+
+\subsection{System stoppen}
+
+Zum sauberen Beenden aller Container genügt:
+
+\begin{lstlisting}[language=bash,caption={System stoppen}]
+docker compose down
+\end{lstlisting}
+
+Sollen zusätzlich die persistierten Log-Volumes entfernt werden, wird
+\texttt{-v} ergänzt:
+
+\begin{lstlisting}[language=bash,caption={System stoppen und Volumes löschen}]
+docker compose down -v
+\end{lstlisting}
