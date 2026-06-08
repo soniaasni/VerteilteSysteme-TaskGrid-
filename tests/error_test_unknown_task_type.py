@@ -157,18 +157,10 @@ def _bring_up() -> None:
     um sicherzustellen dass nur die drei Pflicht-Worker laufen.
     """
 
-    print("REPO_ROOT =", REPO_ROOT)
-
-    cfg = _docker_compose("config", "--services")
-    print(cfg.stdout)
-    print(cfg.stderr)
-    cfg = _docker_compose("config")
-    print(cfg.stdout)
-
     up = _docker_compose(
         "up", "-d", "--build", "--remove-orphans",
-        "--scale", "worker-upper=0",
-        "--scale", "worker-wait=0",
+        "worker-upper",
+        "worker-wait",
         "namensdienst", "dispatcher", "worker-sum", "worker-reverse", "worker-hash",
     )
     assert up.returncode == 0, (

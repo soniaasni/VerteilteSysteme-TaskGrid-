@@ -176,17 +176,37 @@ def _get_result(task_id: int) -> "taskgrid_pb2.ResultResponse":
         )
 
 
+class _PollResult:
+    """
+    Leichter Wrapper um eine ResultResponse, der zusätzlich die während des
+    Pollings beobachteten Zustandsübergänge speichert.
+
+    Alle Zugriffe auf `.payload` werden an die originale Protobuf-Response
+    delegiert, sodass bestehende Aufrufer unverändert bleiben.
+    """
+
+    def __init__(
+        self,
+        response: "taskgrid_pb2.ResultResponse",
+        observed_states: "list[str]",
+    ) -> None:
+        self._response = response
+        self.observed_states = observed_states
+
+    # Transparente Delegation aller anderen Attribute an die Protobuf-Response
+    def __getattr__(self, name: str):
+        return getattr(self._response, name)
+
+
 def _poll_bis_completed(
     task_id: int,
     timeout: float = TASK_COMPLETION_TIMEOUT_SECS,
     track_states: bool = False,
-) -> "taskgrid_pb2.ResultResponse":
+) -> "_PollResult":
     """
     Polling-Loop: fragt GET_RESULT wiederholt ab, bis COMPLETED oder FAILED.
-    Gibt die letzte Antwort zurück.
-
-    Wenn track_states=True, wird zusätzlich die beobachtete Zustandssequenz
-    als Attribut `observed_states` an die Antwort angehängt.
+    Gibt ein _PollResult zurück, das die Protobuf-Response und (wenn
+    track_states=True) die beobachtete Zustandssequenz enthält.
     """
     deadline = time.time() + timeout
     last_resp = None
@@ -203,9 +223,7 @@ def _poll_bis_completed(
             last_status = current
 
         if current in ("COMPLETED", "FAILED"):
-            if track_states:
-                resp.observed_states = observed  # type: ignore[attr-defined]
-            return resp
+            return _PollResult(resp, observed)
         time.sleep(POLL_INTERVAL_SECS)
 
     status = last_resp.payload.status if last_resp else "unbekannt"
